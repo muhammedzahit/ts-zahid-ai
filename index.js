@@ -2,6 +2,19 @@
 
 require('dotenv').config();
 
+// Node 21+ globalThis.navigator'i yalnizca getter olarak tanimliyor; webex SDK 2.60.0
+// yuklenirken global.navigator'a atama yapip TypeError ile cokuyor. Ozelligi
+// yazilabilir hale getiriyoruz (Node 20'de ozellik yok, dokunulmaz).
+const navTanim = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+if (navTanim && navTanim.get && navTanim.configurable) {
+  Object.defineProperty(globalThis, 'navigator', {
+    value: undefined,
+    writable: true,
+    configurable: true,
+    enumerable: navTanim.enumerable,
+  });
+}
+
 const Framework = require('webex-node-bot-framework');
 const { changeTemporaryPassword } = require('./lib/tempPassword');
 const { handleSelectQuery } = require('./lib/dbQuery');
