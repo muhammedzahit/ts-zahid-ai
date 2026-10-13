@@ -2,8 +2,8 @@
 
 ## Proje Neyle Ilgili
 OSEM ekibi icin bir **Webex islem botu** (Node.js). Islemler: 1 gecici sifre,
-2 prod DB SELECT, 3 Argo merge durumu, 4 merge notu birakma, 5 DB sorusu sor,
-6 liquibase calistir, 7 talep atama onerisi, 8 makara (bot koprusu).
+2 prod DB SELECT, 3 Argo merge durumu, 4 merge notu birakma, 6 liquibase
+calistir. (5, 7, 8, 9 islemleri 2026-10-13'te kaldirildi.)
 Kullanicilar botu
 bir Webex odasinda etiketleyip (mention) komut yazarlar; bot da tanimli
 operasyonlari calistirir. Amac tekrarli operasyonel islemleri (sifre sifirlama, prod DB
@@ -33,29 +33,6 @@ sorgusu) Webex uzerinden guvenli sekilde yapabilmek.
   projesine robocopy `/MIR` ile aynalar, sonra o projenin `run.cmd`'sini
   cagirip ciktisini ayristirir. Sifir harici bagimlilik (`child_process`).
   Ayni anda iki calistirmayi engelleyen `mesgulMu()` kilidi var.
-- **lib/jiraSuggest.js** — 7. islem. Ayri bir Python projesini (`jira-crawler`)
-  `python -m jira_crawler suggest <KEY> --json` (ya da anahtar yerine
-  `--metin "<kelimeler>"`) seklinde alt surec olarak calistirip talebin kime
-  atanabilecegine dair 5 oneri alir ve Webex markdown'ina cevirir; ayrica guven
-  gostergesi, bayat indeks uyarisi, adaylarin acik is sayisi ve "acan kisi
-  listede degil" uyarisini basar. Talep anahtari regex ile dogrulanir. Sifir
-  harici bagimlilik (`child_process`), timeout 90 sn.
-- **lib/kodSor.js** — 9. islem. Localhost'ta calisan `osem-kod-bot` servisine
-  (varsayilan `http://127.0.0.1:8849`) soruyu iletir, donen Turkce cevabi
-  Webex'e basar. Iki tur soru: TARIHCE ("iskontolarda son jiralarda ne degisti")
-  ve MEVCUT DURUM ("iskonto sifirlama kurali nasil calisiyor"). Cevabin altinda
-  dayanak olarak bakilan talepler ve sure listelenir.
-  **Timeout 20 dk** — ajan kodun DIFF'ini okuyup ozetliyor; olculen sureler
-  46 sn (tek talep) ile 175 sn (203 dosyalik talep) arasi.
-  Servis: `C:\Users\T008356\Desktop\osem_kod_bot` (pm2: `osem-kod-bot`).
-- **lib/makara.js** — 8. islem. Botlar arasi kopru: metni kopru odasinda
-  (`Botlarim`) hedef botu **etiketleyerek** yazar, cevabini bekler ve cagirana
-  dondurur. Hedef bot oda uyelerinden gorunen adiyla bulunur (Turkce karakterler
-  sadelestirilerek karsilastirilir), sonuc bellekte saklanir. Cevap uc kanaldan
-  yakalanir; asil kanal **kendi mesajimizin thread'ini yoklamak**
-  (`parentId`), yedekler websocket ve (varsa) kullanici token'iyla tum oda.
-  Ayni anda tek makara (`mesgulMu()` kilidi), zaman asimi 150 sn, yoklama
-  6 sn'de bir (429 alirsa `Retry-After` kadar geri cekilir).
 - **lib/permissions.js** — grup bazli yetkilendirme. `.env`'deki
   `WEBEX_ROOM_ID_<GRUP>` / `WEBEX_ROOM_ID_<GRUP>_YETKILER` degiskenlerinden
   roomId → izinli komut seti haritasi cikarir (`loadRoomPermissions`,
@@ -163,30 +140,6 @@ Akis:
 Amac: release/merge alan kisiye "sunu unutma" notlarinin sohbet icinde
 kaybolmadan, tam merge aninda onune gelmesi.
 
-### 5 — DB Sorusu Sor (SQL uretir)
-Girdi:
-```
-5
-su username'e sahip kullanicinin yetkisi ne?
-```
-Akis:
-1. `lib/dbSor.js` > `askDbQuestion`, `DB_SOR_URL`'e (varsayilan
-   `http://127.0.0.1:8848`) POST atar. Timeout 180 sn — Opus 5 birkac dosya
-   okudugu icin cevap 30-60 sn surebiliyor, o yuzden once "🔎 Bakiyorum…" mesaji
-   basiliyor.
-2. Servis Turkce soruyu alip **calistirilabilir SELECT sorgusu + aciklama** dondurur.
-   **Sorguyu CALISTIRMAZ.** Kullanici isterse donen SQL'i **2. islemle** calistirir.
-3. Oturum anahtari `roomId:personId` — ayni kisinin ayni odadaki devam sorulari
-   ("buna sirket adini da ekle") onceki sorgunun uzerine insa edilir. 30 dk TTL,
-   serviste bellekte tutulur, restart'ta kaybolur.
-4. Servis kapaliysa `ECONNREFUSED` yakalanip "pm2 start osem-db-bot ile
-   baslatilmali" mesaji doner. Kota dolmussa (HTTP 429) anlasilir Turkce uyari.
-5. Cevap Webex limiti icin 7000 karakterde kisaltilir.
-
-Servis ayri projede: `C:\Users\T008356\Desktop\osem_db_bot` (pm2 adi `osem-db-bot`).
-Kimlik dogrulama `claude login` ile — **abonelik kotasindan** yer, API key kullanmaz.
-Detay icin o projenin `README.md`'si.
-
 ### 6 — Liquibase Calistir
 Girdi:
 ```
@@ -251,187 +204,6 @@ Ayri proje: `C:\Users\T008356\Documents\Projeler\liquibase-spring`
 Bot env: `LIQUIBASE_SOURCE_REPO`, `LIQUIBASE_SOURCE_BRANCH`,
 `LIQUIBASE_PROJECT_DIR`, `LIQUIBASE_TIMEOUT_MS` (varsayilan 30 dk).
 
-### 7 — Talep Kime Atanabilir? (oneri)
-Girdi:
-```
-7 APTY-125305                   -> ozet: en olasi 5 kisi, kisi basina 3 dayanak
-7 APTY-125305 full              -> tam rapor: oy alan TUM adaylar, 8 dayanak
-7 ekspertiz kati rapor json     -> serbest metin: anahtar olmadan arama
-7 ekspertiz-kati-rapor-json     -> tek kelime de olur (tire/nokta bolucu sayilir)
-```
-(alt satirda da yazilabilir; `full` yerine `tam` / `detay` / `hepsi` de kabul edilir,
-anahtardan once de sonra da yazilabilir - `lib/jiraSuggest.js` > `parametreyiCoz`)
-
-**Anahtar oncelikli**: yazilanlarin arasinda `PROJE-12345` goruntusunde bir kelime
-varsa o anahtar kabul edilir, geri kalani yok sayilir. Hicbiri anahtara benzemiyorsa
-yazilanlarin tamami arama metni olur (`full` kelimeleri ayiklanarak).
-
-Benzer isler her zaman **anahtar + baslik** olarak listelenir; anahtar tek basina
-hangi is oldugunu anlatmiyordu. Full rapor Webex siniri icin 7000 karakterde
-kirpilir (tipik full rapor ~2000 karakter).
-
-Akis:
-1. `lib/jiraSuggest.js` > `oneriAl`, ayri bir Python projesini alt surec olarak
-   calistirir: `python -m jira_crawler suggest <KEY> --top 5 --json`
-   (cwd = `JIRA_CRAWLER_DIR`). Timeout 90 sn, tipik cevap ~1 sn.
-   Serbest metinde anahtar yerine `--metin "<kelimeler>"` gider.
-2. Talep anahtari `^[A-Z][A-Z0-9_]*-\d+$` ile dogrulanir — kabuk enjeksiyonuna
-   karsi tek savunma bu, gevsetilmemeli. Serbest metin bu regexten gecmez:
-   kontrol karakterleri temizlenir, 200 karakterle sinirlanir ve alt surece
-   **argüman dizisiyle** verilir (`spawn`, `shell:true` YOK — kabuk yorumlamaz).
-3. Crawler 7573 gecmis isin (12 kisi, `users.json`) **BM25** indeksinden en yakin
-   40 isi bulur, sahiplerine oy dagitir, kisinin o projedeki gecmis yogunlugu
-   ile harmanlar (%60 metin / %40 proje) ve en olasi 5 kisiyi dondurur.
-   Metin sadece isin kendisi degil: islerin %60'i alt gorev oldugu ve %17'sinin
-   kendi aciklamasi bos oldugu icin UST TASK'in aciklama/yorum/ek bilgisi de
-   (daha dusuk agirlikla) hesaba katilir.
-   (Onceden TF-IDF + kosinus ve 15 komsu vardi. BM25'e gecis olculdu: Top-3
-   %78.4 -> %79.9, dort tohumun dordunde de kazandi. Gosterilen `similar[].score`
-   yine 0-1 arasi kosinus — BM25 skorlari sinirsiz oldugu icin gosterim ayrica
-   kosinusle hesaplaniyor.)
-4. Talep crawler veritabaninda yoksa Jira'dan canli cekilir — yani **yeni acilmis
-   talep icin de calisir**. Veritabanindaysa kendisi indeksten cikarilir
-   (kendini bulup kopya cekmesin).
-   Canli cekilen talep icin de ust task / bagli jira / alt gorevleri getirilir,
-   boylece sorgu indekstekilerle AYNI baglama sahip olur. (Bu bastan boyle
-   degildi: sorgu tarafi baglamsizdi, gercek dogruluk olculenin altindaydi.)
-5. Yanitta her kisi icin: yuzde, **acik is sayisi**, metin benzerligi, proje
-   uzmanligi, kac/40 oy ve dayanak olarak benzer is anahtarlari gosterilir.
-6. Ustte ayrica **guven gostergesi** ve gerekirse **bayat indeks uyarisi**,
-   altta **acan kisi uyarisi** basilir (asagida).
-
-Olculen isabet (son 90 gunde guncellenen 896 is, gelecek aday havuzundan
-cikarilarak): **ilk oneri %47.7, ilk ucte %74.9, ilk beste %86.7** (rastgele
-%8.3, hep en yogun kisi %16.0). Bot artik 5 isim basiyor, yani pratikte gecerli
-sayi **%86.7**.
-
-Onceden %54.9 yaziyordu; o olcum test isinin GELECEGINDEKI isleri de komsu
-sayiyordu, gercek bir yeni talep oyle bir sey goremez. Sistem kotulesmedi,
-olcum durustlesti. Yeniden olcmek icin:
-`python -m jira_crawler evaluate --recent 90`
-
-### Serbest metin modu (anahtarsiz arama)
-
-Henuz talep acilmadan "bu isi kim yapar?" diye bakmak icin. Crawler tarafinda
-`suggest --metin` olarak eklendi; yazilan kelimeler sorgunun kendisi olur
-(`ara` ile ayni yaklasim: kelimeler `title` alanina konur, hepsi esit agirlik alir).
-
-Anahtarli moddan iki farki var, ikisi de ciktida yaziyor:
-- **Proje uzmanligi hesaba katilmaz** — ortada bir talep, dolayisiyla bir proje
-  yok. Skor tamamen metin benzerligi; aday satirlarinda `proje %` hic basilmaz
-  (yoksa herkes icin `%0` yazip hata gibi gorunuyordu).
-- **"Acan kisi" uyarisi uretilmez** — sorguyu acan kimse yok.
-
-Indekste karsiligi olmayan (ya da cok yaygin oldugu icin `MAX_DF_RATIO` ile
-elenmis) kelimeler ciktida ayrica listelenir: sessizce dusmeleri sonucu
-aciklanamaz yapiyordu. 3 harften kisa kelimeler ve stopword'ler zaten elenir.
-
-Olculen isabet rakamlari (asagidaki) **anahtarla** yapilan sorgular icin; serbest
-metinde sonuc yazilan kelimelerin ayirt ediciligine bagli, bu yuzden ciktida ayri
-bir dipnotla soyleniyor.
-
-### Uyari ve gosterge satirlari (hepsi olculmus)
-
-- **Guven** — benzer isler kac FARKLI kisiye dagilmis: <=5 kisi %95.4, 6-7 kisi
-  %83.7, 8+ kisi %74.3 isabet. Dagilim genisse listeye temkinli bakilmali.
-- **Bayat indeks** — 7 gunden eskiyse uyari. Taze %77.6 -> 1-3 ay %60.8 ->
-  6+ ay %47.5. Bayatlama en buyuk operasyonel kaldirac; `update` sikligi bir
-  tercih degil dogruluk parametresi.
-- **Acik is sayisi** — SADECE BILGI, skora girmiyor. Global bir yuk cezasi
-  olculdu, kazanc yok (gecmiste isi alan genelde yogun olan kisi).
-- **Acan kisi listede degil** — vakalarin %12.1'inde acan kisi dogru cevapti
-  ama model ilk 3'e koymadi. Uyari basildiginda acan kisi ~%31, listede
-  oldugunda ~%82 oraninda dogru cevap. Kural modelin YERINE gecmiyor: "acan
-  kisi yapar" tek basina %61.6, modelin ilk 3'u %79.2.
-
-Crawler projesi: `C:\Users\T008356\Documents\Projeler\claude\jira-crawler`
-(pm2 altinda DEGIL — her cagrida kisa omurlu alt surec olarak calisir).
-Veri **gunluk** `python -m jira_crawler update` ile tazelenmeli; oneri kalitesi
-dogrudan bu verinin gunculugune bagli (yukaridaki bayatlama egrisi). Bot bunu
-kendisi hatirlatiyor ama guncellemeyi yapmiyor.
-
-Crawler tarafinda ayrica su komutlar var (bot henuz kullanmiyor):
-`similar <KEY>` mukerrer/ikiz tespiti · `ara "<metin>"` serbest metin arama ·
-`ara --tam "<ifade>"` birebir ifade (FTS5) · `sweep` parametre taramasi ·
-`git sync|status|show|etiket|olcum` GitLab branch/commit tarihcesi.
-
-**Git tarihcesi (2026-09-11 eklendi).** Crawler artik dort ekip deposunu
-(`osem/backend`, `osem/frontend`, `osem/otodisihasar/{backend,frontend}`) bare
-klonlayip Jira anahtarli branch'lerin commit ve degisen-dosya verisini
-`data/jira.db`'ye yaziyor. Kimlik dogrulama git'in kendi credential
-helper'indan gelir (Windows Credential Manager) — .env'e token GIRMEZ.
-`git show APTY-87916` bir talebin kim/ne zaman/hangi dosya hikayesini basiyor;
-planlanan kod tarihcesi soru modunun (9. islem) veri kaynagi bu.
-**Oneri skoruna DAHIL DEGIL** — olculdu, kazanc cikmadi (bkz. crawler
-README "Kod metni zenginlestirmesi"). `W_CODE` 0'da duruyor.
-
-Bot env: `JIRA_CRAWLER_DIR` (varsayilan yukaridaki yol), `PYTHON_BIN`
-(varsayilan `python`; PATH'te degilse tam yol verin).
-
-Sinirlar: sadece `users.json`'daki 12 kisi arasindan secer (`aktif: false`
-isaretlenenler haric); **is yuku / izin durumu SKORA KATILMAZ** (acik is sayisi
-yalnizca bilgi olarak gosterilir); ilk beste %86.7 isabet otomatik atama icin
-degil on eleme icindir. Devredilmis islerde belirgin daha kotu: Top-3 %81.0
-yerine %66.1 (havuzun %12'si).
-
-### 8 — Makara (Botlar Arasi Kopru)
-Girdi:
-```
-8 Ismail'i zorbala
-```
-(alt satirda da yazilabilir: `8` + yeni satir + metin)
-
-Akis:
-1. `lib/makara.js` > `makaraYap`, once **kopru odasindaki hedef botu** bulur:
-   `GET /memberships?roomId=<kopru>` ile oda uyeleri okunur, gorunen adi
-   `MAKARA_BOT_ADI` (varsayilan `MakaraMiyizAbi`) ile eslesen uye alinir.
-   Karsilastirma `sadelestir()` ile yapilir: odadaki gercek ad Turkce
-   karakterli (**MakaraMıyızAbi**), kod/env tarafi ASCII yazilabilsin diye.
-   Sonuc bellekte cache'lenir. `MAKARA_BOT_ID` verilirse arama hic yapilmaz.
-2. Kopru odasina `markdown: "<@personId:HEDEF_ID> <metin>"` olarak yazilir —
-   yani hedef bot GERCEKTEN etiketlenir (duz "@isim" metni bir sey tetiklemez).
-3. Kullanicinin metni `temizle()`den gecer: `<@` dizisi kirilir (baskalarini
-   etiketleyecek enjeksiyon olmasin) ve 1000 karakterde kirpilir.
-4. Cevap beklenir (varsayilan **150 sn**, `MAKARA_TIMEOUT_MS`), uc kanal yarisir:
-   - **thread yoklamasi (asil kanal)** — 6 sn'de bir
-     `GET /messages?roomId=<kopru>&parentId=<bizim mesaj>`. Karsi bot
-     `bot.reply` ile **thread'e** cevap veriyor ve bizi **etiketlemiyor**;
-     bot token odayi filtresiz listeleyemese de (403) kendi mesajinin
-     thread'ini listeleyebiliyor. Olculdu 2026-09-11, kullanici token'i
-     GEREKMEZ.
-   - **websocket** — karsi bot cevabinda bizi etiketlerse framework mesaji
-     aninda getirir; `index.js` kopru odasi mesajlarini `cevapGeldi()`ye verir.
-   - **tum oda** — `WEBEX_USER_TOKEN` gecerliyse odadaki TUM mesajlar taranir,
-     boylece thread disina yazilan etiketsiz cevap da yakalanir. Token
-     expired ise ilk 401'de birakilir ve ayni turda bot token'ina donulur.
-   Cevabin basindaki kendi bot adimiz (`ZahidAI:`) temizlenip gruba
-   **oldugu gibi** yazilir: kaynak belirtilmez, "MakaraMıyızAbi diyor ki"
-   gibi bir baslik EKLENMEZ (kullanici istegi, 2026-09-11) — cevap botun
-   kendi sozu gibi gorunur. Bekleme mesaji da kopruyu/karsi botu anmaz
-   ("Bir saniye, makarayi hazirliyorum…"); olculen cevap suresi ~53 sn
-   (LLM uretimi) oldugu icin bu mesaj gerekli.
-   Not: hata/zaman asimi mesajlari teshis icin hedef botun adini ANAR
-   (sadece basarili cevapta kaynak gizlenir).
-5. Ayni anda yalnizca **bir** makara calisir (`mesgulMu()`); ikinci istege
-   "cevap gelince tekrar deneyin" denir (cevaplar karismasin diye).
-
-Kopru odasi: **Botlarim** (`WEBEX_KOPRU_ODA_ID`), uyeleri ZahidAI +
-MakaraMıyızAbi + kullanici. Bu oda `WEBEX_ROOM_ID_*` kalibinda DEGIL, yani
-`permissions.js` onu bir grup saymaz; bot o odaya **hicbir zaman yanit
-yazmaz** (sadece dinler) — iki bot birbirini tetikleyip dongu yapmasin diye.
-
-Karsi bot (MakaraMıyızAbi = "makara/karakter botu") **baska bir sunucuda**
-calisiyor; bu makinedeki `C:\Users\T008356\Desktop\webex_bot` kopyasi ESKI
-(pm2'de `webex-character-bot` stopped, kodunda sadece kendi ana grubunda
-cevap veren eski filtre var). Canli bot kopru odasinda cevap veriyor —
-2026-09-11'de olculdu, o yuzden o projeye dokunmak gerekmedi.
-
-Canli dogrulama (2026-09-11, tek test mesaji): ZahidAI'nin mesaji odaya
-`mentionedPeople: 1` ile dustu (etiket gercekten olustu), MakaraMıyızAbi
-52.7 sn sonra thread'e cevap yazdi ("duydum. pingi kapa, debug da ucretli...")
-ve cevabinda kimseyi etiketlemedi; `yoklamaylaAra` bu cevabi thread
-kanalindan aynen yakaladi.
-
 ## Grup Bazli Yetkilendirme
 Bot birden fazla gruba ekli; her grupta hangi islemlerin calisacagi `.env`'den
 belirlenir:
@@ -446,8 +218,8 @@ tum `WEBEX_ROOM_ID_<GRUP>` anahtarlarini regex ile tarar, grup adi serbesttir.
 `.env`'e iki satir + `pm2 restart osem-bot` yeterli.
 
 Suanki canli dagilim (2026-09-11): GRUP1 `all`, GRUP2 `3,4,6`, GRUP3 `7`.
-8. islem (makara) bu yuzden su an yalnizca **GRUP1**'de calisir; GRUP2/GRUP3'te
-kullanilacaksa o gruplarin `_YETKILER` listesine `8` eklenmeli.
+DIKKAT: 7. islem kaldirildi — GRUP3'te artik calisan islem yok; `.env`'de
+GRUP3 satirlari guncellenmeli ya da silinmeli.
 
 Kurallar:
 - Eslesme room ID uzerinden yapilir (grup adi degisse de bozulmaz).
@@ -479,22 +251,6 @@ DIKKAT: `.env`'de en az bir `WEBEX_ROOM_ID_<GRUP>` tanimli olmali, yoksa bot
 hicbir odayi dinlemez (baslangicta uyari loglanir).
 
 ## Bilinen Sinirlar
-- **Bot, grup odasinda kendisine etiket atilmayan mesajlari goremez** (Webex
-  kurali, 8. islemin kisiti). Olculdu (2026-09-11), bot token ile:
-  `GET /messages?roomId=<kopru>` → **403 "Failed to get activity"**,
-  `...&mentionedPeople=me` → 200 (sadece bizi etiketleyenler),
-  **`...&parentId=<bizim mesaj>` → 200 ve thread'deki etiketsiz cevap gorunuyor.**
-  Yani kendi baslattigi thread bot icin acik; 8. islem bu sayede kullanici
-  token'i olmadan calisiyor. Kalan bosluk: karsi bot cevabi thread DISINA,
-  etiketsiz, ayri bir mesaj olarak yazarsa gorulemez — o senaryo icin
-  `WEBEX_USER_TOKEN` gerekir ve `.env`'deki mevcut token **suresi dolmus**
-  (`/people/me` → 401). Yenilemek icin developer.webex.com kisisel token
-  (12 saat) ya da `WEBEX_CLIENT_ID/SECRET/REDIRECT_URI` ile OAuth (14 gun).
-  Kod 401'i bir kez gorunce kullanici token'ini birakir, ayni turda bot
-  token'ina doner (log: "Makara: WEBEX_USER_TOKEN gecersiz/suresi dolmus").
-- Kopru yoklamasi **429** yiyebiliyor: 3 sn araliktaki yoklama ~18 istekte
-  rate limit'e takildi (2026-09-11). Aralik 6 sn'ye cekildi ve `Retry-After`
-  basligina uyuluyor; asil kanal zaten tek istek/tur.
 - `webex-node-bot-framework` 2.5.1'de kalindi: 3.0.0 Node >= 22 istiyor
   (makinede Node 20.16 var) ve 2.x serisinin son surumu zaten 2.5.1.
   Framework, webex SDK'yi tam `2.60.0`'a sabitliyor; bu SDK uzun calismada
@@ -528,6 +284,14 @@ hicbir odayi dinlemez (baslangicta uyari loglanir).
 - Bu dosyayi (memory.md) guncelle.
 
 ## Yapilanlar / Durum
+- [2026-10-13] **5, 7, 8 ve 9. islemler kaldirildi.** `index.js`'ten menu,
+  handler ve switch kayitlari ile kopru odasi yonlendirmesi silindi;
+  `lib/dbSor.js`, `lib/jiraSuggest.js`, `lib/makara.js`, `lib/kodSor.js` ve
+  `roomid.js` silindi, test-offline.js'teki 7/8 testleri cikarildi.
+  `.env.example`'tan `DB_SOR_URL`, `WEBEX_USER_TOKEN` ve `WEBEX_KOPRU_ODA_ID`
+  atildi. Kodda okunmayan `WEBEX_CLIENT_ID/SECRET/REDIRECT_URI` ve islemi
+  kalmayan `WEBEX_ROOM_ID_GRUP3(_YETKILER)` de `.env.example`'tan cikarildi.
+  Asagidaki eski kayitlar tarihce olarak duruyor.
 - [2026-09-12] **9. islem derinlestirildi: ajan artik KODU OKUYOR.**
   - Yeni `git_diff` araci: bir talebin fiili kod degisikligi. Buyuk talepte
     sayfalanir ("sayfa 2/5"), ajan sayfalari sirayla okuyup ozetliyor.

@@ -9,19 +9,11 @@ const { stripBotMention, parseInput, htmlToText, parseMergeInterval } = require(
 const ArgoControl = require('./lib/mergeControl');
 const { loadRoomPermissions, isAllowed } = require('./lib/permissions');
 const { addNote, listNotes, clearNotes, formatNotes } = require('./lib/mergeNotes');
-const { askDbQuestion } = require('./lib/dbSor');
-const { askKodQuestion } = require('./lib/kodSor');
 const {
   changeloglariSenkronla,
   liquibaseCalistir,
   mesgulMu: liquibaseMesgulMu,
 } = require('./lib/liquibaseRun');
-const {
-  oneriAl: jiraOneriAl,
-  formatla: jiraOneriFormatla,
-  parametreyiCoz: jiraParametreyiCoz,
-} = require('./lib/jiraSuggest');
-const makara = require('./lib/makara');
 
 const config = {
   token: process.env.WEBEX_BOT_TOKEN,
@@ -81,15 +73,6 @@ const OPERATIONS = [
       'Birakilan notlar 3. islem calistirildiginda gruba gosterilir ve listeden temizlenir.',
   },
   {
-    cmd: '5',
-    menuText:
-      '**5 — DB sorusu sor (SQL uretir)**\n' +
-      'Turkce soru sorun, calistirilabilir SELECT sorgusu ve aciklamasi donsun.\n' +
-      'Kullanim (araya yeni satir birakin):\n' +
-      '```\n5\nsu username\'e sahip kullanicinin yetkisi ne?\n```\n' +
-      'Sorguyu bot calistirmaz; isterseniz donen SQL\'i **2. islemle** calistirabilirsiniz.',
-  },
-  {
     cmd: '6',
     menuText:
       '**6 — Liquibase calistir**\n' +
@@ -100,43 +83,6 @@ const OPERATIONS = [
       '`staging` → dogrudan uygulanir.\n' +
       '`prod` → once bekleyen changeset\'ler listelenir, hicbir sey yazilmaz; ' +
       'uygulamak icin `6` + `onayla`, vazgecmek icin `6` + `iptal`.',
-  },
-  {
-    cmd: '7',
-    menuText:
-      '**7 — Talep kime atanabilir? (oneri)**\n' +
-      'Talep anahtarini verin, gecmis islere bakip en olasi kisileri onersin.\n' +
-      'Kullanim: `7 APTY-125305`\n' +
-      'Talep anahtari yoksa anahtar kelimelerle de aranabilir:\n' +
-      '`7 ekspertiz kati rapor json`\n' +
-      'Tum adaylar ve daha fazla dayanak icin sonuna `full` ekleyin: ' +
-      '`7 APTY-125305 full`\n' +
-      'Alt satira da yazilabilir:\n' +
-      '```\n7\nAPTY-125305\n```\n' +
-      'Her oneride dayanak olarak benzer isler anahtar + basligiyla listelenir.\n' +
-      'Oneri gecmis isleri baz alir; kisilerin o anki is yuku dikkate ALINMAZ.',
-  },
-  {
-    cmd: '8',
-    menuText:
-      '**8 — Makara yap**\n' +
-      'Istediginizi kopru odasindaki makara botuna ilettirir, cevabini buraya getirir.\n' +
-      'Kullanim: `8 Ismail\'i zorbala`\n' +
-      'Alt satira da yazilabilir:\n' +
-      '```\n8\nIsmail\'i zorbala\n```',
-  },
-  {
-    cmd: '9',
-    menuText:
-      '**9 — Jira/kod sorusu sor**\n' +
-      'Gecmis talepleri ve kod tarihcesini tarayip Turkce cevap verir.\n' +
-      'Iki tur soru sorabilirsiniz:\n' +
-      '```\n9\niskontolarda son jiralarda hangi guncellemeler yapildi\n```\n' +
-      '```\n9\niskonto sifirlama kurali eksper tarafinda nasil calisiyor\n```\n' +
-      'Ilki gecmisi (hangi talepte ne degisti, kim, ne zaman), ikincisi ' +
-      'guncel kodu anlatir.\n' +
-      'Ajan kodu gercekten okuyup ozetliyor: cevap **birkac dakika** surebilir, ' +
-      'buyuk taleplerde daha uzun. Dayanak olarak bakilan talepler listelenir.',
   },
 ];
 
@@ -317,122 +263,6 @@ async function handleOperationFour(bot, trigger, note) {
   } catch (err) {
     await bot.say(`❌ Not kaydedilemedi:\n\`\`\`\n${err.message}\n\`\`\``);
   }
-}
-
-async function handleOperationFive(bot, trigger, soru) {
-  if (!soru || !soru.trim()) {
-    await bot.say(
-      '5. islem icin ikinci satira sorunuzu yazmalisiniz.\n\n' +
-        'Ornek:\n```\n5\nsu username\'e sahip kullanicinin yetkisi ne?\n```'
-    );
-    return;
-  }
-
-  // Cevap 30-60 saniye surebiliyor; kullanici beklemede oldugunu bilsin.
-  await bot.say('🔎 Bakiyorum, birkac saniye surebilir…');
-
-  const kullanici = (trigger.person && trigger.person.displayName) || trigger.personEmail || null;
-  // Oturum anahtari: ayni odada ayni kisinin devam sorulari baglama otursun.
-  const oturum = `${bot.room.id}:${trigger.personId || trigger.personEmail || 'anon'}`;
-
-  const { mesaj } = await askDbQuestion({ soru, kullanici, oturum });
-  await bot.say(mesaj);
-}
-
-// --- 9. islem: Jira/kod tarihcesi sorusu -----------------------------------
-
-async function handleOperationNine(bot, trigger, soru) {
-  if (!soru || !soru.trim()) {
-    await bot.say(
-      '9. islem icin ikinci satira sorunuzu yazmalisiniz.\n\n' +
-        'Ornek:\n```\n9\niskontolarda son jiralarda hangi guncellemeler yapildi\n```\n' +
-        '```\n9\niskonto sifirlama kurali nasil calisiyor\n```'
-    );
-    return;
-  }
-
-  // Ajan talepleri bulup kodun DIFF'ini okuyor, buyuk taleplerde sayfa sayfa.
-  // Bu birkac dakika surebiliyor; kullanici beklemede oldugunu bilsin.
-  await bot.say(
-    '🔎 Jira ve kod tarihcesini tariyorum, degisen kodu okuyorum… ' +
-      'Birkac dakika surebilir.'
-  );
-
-  const kullanici = (trigger.person && trigger.person.displayName) || trigger.personEmail || null;
-  // Oturum anahtari: ayni odada ayni kisinin devam sorulari baglama otursun.
-  const oturum = `${bot.room.id}:${trigger.personId || trigger.personEmail || 'anon'}`;
-
-  const { mesaj } = await askKodQuestion({ soru, kullanici, oturum });
-  await bot.say(mesaj);
-}
-
-// --- 7. islem: Talep atama onerisi -----------------------------------------
-
-async function handleOperationSeven(bot, talep) {
-  const istek = jiraParametreyiCoz(talep);
-  const { key: anahtar, metin, full } = istek;
-  if (!anahtar && !metin) {
-    await bot.say(
-      '7. islem icin talep anahtarini ya da aranacak kelimeleri yazmalisiniz.\n\n' +
-        'Ornek:\n```\n7 APTY-125305\n```\n' +
-        'Talep anahtari yoksa kelimelerle de aranabilir:\n' +
-        '```\n7 ekspertiz kati rapor json\n```\n' +
-        'Tum adaylari gormek icin:\n```\n7 APTY-125305 full\n```'
-    );
-    return;
-  }
-
-  // Indeks kurulumu + gerekirse Jira'dan cekme birkac saniye surebiliyor.
-  await bot.say(
-    `🔎 ${anahtar ? anahtar.toUpperCase() : `"${metin}"`} icin gecmis isler taraniyor…` +
-      (full ? ' (tam rapor)' : '')
-  );
-
-  try {
-    const veri = await jiraOneriAl(istek, full);
-    await bot.say(jiraOneriFormatla(veri, full));
-  } catch (err) {
-    await bot.say(`⚠️ Oneri alinamadi.\n\n${err.message}`);
-  }
-}
-
-// --- 8. islem: Makara (botlar arasi kopru) ---------------------------------
-
-async function handleOperationEight(bot, rest) {
-  const metin = (rest || '').trim();
-  if (!metin) {
-    await bot.say(
-      '8. islem icin makara metnini yazmalisiniz.\n\n' +
-        'Ornek:\n```\n8 Ismail\'i zorbala\n```'
-    );
-    return;
-  }
-
-  if (makara.mesgulMu()) {
-    await bot.say('⏳ Kopruden zaten bir makara bekleniyor. Cevap gelince tekrar deneyin.');
-    return;
-  }
-
-  const botAdi = (framework.person && framework.person.displayName) || '';
-  // Cevap LLM ile uretildigi icin ~1 dakika suruyor; kullanici beklemede
-  // oldugunu bilsin. Kopru/karsi bot burada ANILMAZ (asagiya bakin).
-  await bot.say('🎭 Bir saniye, makarayi hazirliyorum… (bir dakika kadar surebilir)');
-
-  const sonuc = await makara.makaraYap({ metin, botAdi });
-
-  if (!sonuc.ok) {
-    await bot.say(`⚠️ Makara olmadi: ${sonuc.hata}`);
-    return;
-  }
-
-  if (!sonuc.cevap) {
-    await bot.say(`🤷 \`${sonuc.kim}\` bos bir cevap dondu.`);
-    return;
-  }
-
-  // Cevap, kaynagi belirtilmeden BOTUN KENDI SOZU gibi yazilir (kullanici
-  // istegi): "MakaraMiyizAbi diyor ki" gibi bir baslik EKLENMEZ.
-  await bot.say(sonuc.cevap);
 }
 
 // --- 6. islem: Liquibase ---------------------------------------------------
@@ -646,25 +476,6 @@ framework.hears(/.*/, async (bot, trigger) => {
   const message = trigger.message || {};
   const botName = (framework.person && framework.person.displayName) || '';
 
-  // Kopru odasi (8. islem): buradaki mesajlar komut degil, karsi botun
-  // cevabidir. Bekleyen bir makara varsa ona verilir; bu odaya ASLA yanit
-  // yazilmaz (aksi halde iki bot birbirini tetikleyip dongu olusur).
-  if (bot.room.id === makara.kopruOdaId()) {
-    const govde = message.html
-      ? htmlToText(message.html, botName)
-      : (trigger.text || message.text || '');
-    const verildi = makara.cevapGeldi({
-      roomId: bot.room.id,
-      personId: trigger.personId || message.personId,
-      text: govde,
-      created: message.created,
-    });
-    console.log(
-      `Kopru odasi mesaji (${trigger.personEmail || '?'}) ${verildi ? 'bekleyen makaraya verildi' : 'yoksayildi'}.`
-    );
-    return;
-  }
-
   // Env'de tanimli olmayan oda/DM — hic yanit verme.
   const perm = ROOM_PERMS.get(bot.room.id);
   if (!perm) {
@@ -711,20 +522,8 @@ framework.hears(/.*/, async (bot, trigger) => {
     case '4':
       await handleOperationFour(bot, trigger, rest);
       break;
-    case '5':
-      await handleOperationFive(bot, trigger, rest);
-      break;
     case '6':
       await handleOperationSix(bot, trigger, rest);
-      break;
-    case '7':
-      await handleOperationSeven(bot, rest);
-      break;
-    case '8':
-      await handleOperationEight(bot, rest);
-      break;
-    case '9':
-      await handleOperationNine(bot, trigger, rest);
       break;
   }
 });
