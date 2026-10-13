@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.5.9</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>tr.com.osm</groupId>
+    <artifactId>liquibase-spring</artifactId>
+    <version>1.0.0</version>
+    <name>liquibase-spring</name>
+    <description>OSEM changelog'larini staging/prod veritabanlarinda calistiran kucuk Spring Boot uygulamasi</description>
+
+    <properties>
+        <java.version>21</java.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <!-- backend-liquibase-2/service/pom.xml ile AYNI surum olmali.
+             Liquibase 4.19+ "duplicate identifier" dogrulamasini sikilastirdi ve
+             mevcut changelog-master.xml bu kontrolden gecmiyor (35 changeset ayni
+             kimlikle iki kez include ediliyor). Uygulamanin yaptigini birebir
+             tekrarlamak icin uygulamanin surumunde kaliniyor. -->
+        <liquibase.version>4.17.1</liquibase.version>
+        <postgresql.version>42.7.5</postgresql.version>
+    </properties>
+
+    <dependencies>
+        <!-- DataSource (Hikari) + spring-jdbc; web katmani yok. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.liquibase</groupId>
+            <artifactId>liquibase-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+    </dependencies>
+
+</project>

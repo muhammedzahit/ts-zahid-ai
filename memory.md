@@ -185,8 +185,11 @@ patlasa bile o ana kadar uygulananlar raporlanir.
 
 Ayni anda iki liquibase calistirilamaz (`mesgulMu()` kilidi).
 
-Ayri proje: `C:\Users\T008356\Documents\Projeler\liquibase-spring`
-(detay icin o projenin `README.md`'si). Onemli noktalar:
+Proje bu reponun icinde: `liquibase-spring/` (detay icin `liquibase-spring/README.md`).
+`LIQUIBASE_PROJECT_DIR` bos/tanimsizsa varsayilan bu klasordur; goreli yol
+repo kokune gore cozulur. `target/`, `.env` ve senkronlanan
+`src/main/resources/db/changelog/` git'e girmez (projenin kendi `.gitignore`'u);
+yeni klonda bir kere `liquibase-spring\build.cmd` calistirilmali. Onemli noktalar:
 - **Veritabani bilgileri botun `.env`'inde DEGIL**, `liquibase-spring/.env`
   icindedir (`STAGING_DB_*` / `PROD_DB_*`); `run.cmd` oradan okur.
 - **dropFirst her zaman `false`** — kodda sabit, ayardan degistirilemez, her
@@ -202,7 +205,8 @@ Ayri proje: `C:\Users\T008356\Documents\Projeler\liquibase-spring`
   DNS adi yalnizca OpenShift icinden cozulur, `.env`'e IP yazilmistir.
 
 Bot env: `LIQUIBASE_SOURCE_REPO`, `LIQUIBASE_SOURCE_BRANCH`,
-`LIQUIBASE_PROJECT_DIR`, `LIQUIBASE_TIMEOUT_MS` (varsayilan 30 dk).
+`LIQUIBASE_PROJECT_DIR` (varsayilan repo icindeki `liquibase-spring`),
+`LIQUIBASE_TIMEOUT_MS` (varsayilan 30 dk).
 
 ## Grup Bazli Yetkilendirme
 Bot birden fazla gruba ekli; her grupta hangi islemlerin calisacagi `.env`'den
@@ -284,6 +288,12 @@ hicbir odayi dinlemez (baslangicta uyari loglanir).
 - Bu dosyayi (memory.md) guncelle.
 
 ## Yapilanlar / Durum
+- [2026-10-13] **liquibase-spring repoya alindi** (`liquibase-spring/`).
+  `lib/liquibaseRun.js` > `PROJECT_DIR` artik varsayilan olarak bu klasoru
+  gosteriyor (`path.resolve(__dirname, '..', LIQUIBASE_PROJECT_DIR || 'liquibase-spring')`);
+  `.env.example`'ta `LIQUIBASE_PROJECT_DIR=liquibase-spring`. Eski mutlak yol
+  (`C:\Users\T008356\Documents\Projeler\liquibase-spring`) dolu `.env`'de
+  duruyorsa o kullanilmaya devam eder — repodakini kullanmak icin degistirilmeli.
 - [2026-10-13] **5, 7, 8 ve 9. islemler kaldirildi.** `index.js`'ten menu,
   handler ve switch kayitlari ile kopru odasi yonlendirmesi silindi;
   `lib/dbSor.js`, `lib/jiraSuggest.js`, `lib/makara.js`, `lib/kodSor.js` ve

@@ -1,0 +1,10 @@
+target/
+.idea/
+*.iml
+
+# Veritabani kimlik bilgileri
+.env
+
+# Changelog'lar bu projenin kaynagi degil: her calistirmada
+# backend-liquibase-2 (prod branch) deposundan senkronlanir.
+src/main/resources/db/changelog/
