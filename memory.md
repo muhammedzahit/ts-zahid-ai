@@ -2,8 +2,9 @@
 
 ## Proje Neyle Ilgili
 OSEM ekibi icin bir **Webex islem botu** (Node.js). Islemler: 1 gecici sifre,
-2 prod DB SELECT, 3 Argo merge durumu, 4 merge notu birakma, 6 liquibase
-calistir. (5, 7, 8, 9 islemleri 2026-10-13'te kaldirildi.)
+2 prod DB SELECT, 3 Argo merge durumu, 4 merge notu birakma, 5 branch kod
+incelemesi (yerel yapay zeka), 6 liquibase calistir. (Eski 5, 7, 8, 9 islemleri
+2026-10-13'te kaldirildi; 5 numarasi ayni gun kod incelemesine verildi.)
 Kullanicilar botu
 bir Webex odasinda etiketleyip (mention) komut yazarlar; bot da tanimli
 operasyonlari calistirir. Amac tekrarli operasyonel islemleri (sifre sifirlama, prod DB
@@ -33,6 +34,10 @@ sorgusu) Webex uzerinden guvenli sekilde yapabilmek.
   projesine robocopy `/MIR` ile aynalar, sonra o projenin `run.cmd`'sini
   cagirip ciktisini ayristirir. Sifir harici bagimlilik (`child_process`).
   Ayni anda iki calistirmayi engelleyen `mesgulMu()` kilidi var.
+- **lib/kodReview.js** — 5. islem. `LIQUIBASE_SOURCE_REPO` deposunda branch'i
+  fetch eder (checkout YOK), mesajinda talep anahtari gecen commit'lerin
+  patch'lerini toplar, yerel OpenAI uyumlu modele (`/chat/completions`) incelettirir.
+  `calistir` yardimcisi `lib/liquibaseRun.js`'ten gelir.
 - **lib/permissions.js** — grup bazli yetkilendirme. `.env`'deki
   `WEBEX_ROOM_ID_<GRUP>` / `WEBEX_ROOM_ID_<GRUP>_YETKILER` degiskenlerinden
   roomId → izinli komut seti haritasi cikarir (`loadRoomPermissions`,
@@ -139,6 +144,48 @@ Akis:
 
 Amac: release/merge alan kisiye "sunu unutma" notlarinin sohbet icinde
 kaybolmadan, tam merge aninda onune gelmesi.
+
+### 5 — Branch Kod Incelemesi (yerel yapay zeka)
+Girdi:
+```
+5 APTY-123
+```
+Akis:
+1. `lib/kodReview.js` > `branchCoz`: ilk kelime branch adi. Guvenli ref alt kumesi
+   (`-` ile baslamaz, `..` yok). Branch adinda talep anahtari varsa
+   (`feature/APTY-123` → `APTY-123`) commit mesajlarinda o, yoksa branch adinin
+   kendisi aranir.
+2. `commitleriTopla`: `git fetch origin +refs/heads/<b>:refs/remotes/origin/<b>`,
+   sonra `git log origin/<b> --no-merges -i -F --grep=<anahtar>` (en fazla
+   `KOD_REVIEW_MAX_COMMIT`=30), her commit icin `git show --stat --patch`.
+   Toplam diff `KOD_REVIEW_MAX_DIFF_CHARS`=300000 karakterde kesilir.
+   **Calisma kopyasina dokunulmaz** (checkout yok) — 6. islemin `prod`
+   checkout'u bozulmaz. Ayni anda liquibase calisiyorsa 5 reddedilir; 5 fetch
+   ederken (`gitMesgulMu`) 6 reddedilir.
+3. `llmIncele`: `LLM_BASE_URL` + `/chat/completions`, `Authorization: Bearer
+   LLM_API_KEY`, `model`=`LLM_MODEL` (strata), `reasoning_effort`=high,
+   `max_tokens`=49152, timeout 30 dk, stream yok. Cevaptaki `<think>` blogu atilir.
+   Sistem mesaji Turkce, bulgular 🔴/🟠/🟡 onem sirasiyla.
+4. **Puan:** model cevabin ilk satirina `PUAN: NN/100` yazar (sistem mesajinda
+   olcek: 90+ sorunsuz, 70-89 kucuk/orta, 50-69 onemli, <50 kritik; 🔴 varsa <50).
+   `puanAyristir` satiri okuyup metinden ayirir (kalin/bosluklu yazim da okunur,
+   bulunamazsa "puan verilmedi"). Bulgular her satirin basindaki 🔴/🟠/🟡 ile
+   sayilir (`bulguSay`); model bu emojileri baska yerde kullanmasin diye uyarildi.
+5. **Cikti:** ayrintili rapor (`raporOlustur`: puan, branch, model, commit
+   listesi, notlar, tam inceleme) `SHARED_FOLDER`'a
+   `kod_review_<branch>_<zaman>.md` olarak yazilir; Webex'e yalnizca puan
+   (🟢 85+ / 🟡 60+ / 🔴), **Ozet** bolumu, bulgu sayilari ve dosya yolu gider.
+   `SHARED_FOLDER` yoksa/yazilamazsa tam inceleme sohbete 6000 baytlik
+   parcalarla basilir (acik ``` bloklari parca sinirinda kapatilip yeniden
+   acilir, en fazla 15 parca).
+6. Menude ve islem baslarken "yerel yapay zeka, veriler OpenAI/Anthropic/Google
+   gibi sirketlere gitmez" uyarisi (`YEREL_AI_UYARISI`) basilir.
+7. Ayni anda tek inceleme (`mesgulMu()`).
+
+Model: kullanicinin DeepSeek harness'ta da kullandigi "Strata" (OpenAI
+completions uyumlu, 262k baglam, 49152 max token). Adres ve anahtar yalnizca
+`.env`'de (`LLM_BASE_URL`, `LLM_API_KEY`). Harness'taki SearXNG MCP araci bu
+islemde kullanilmiyor.
 
 ### 6 — Liquibase Calistir
 Girdi:
@@ -311,6 +358,17 @@ hicbir odayi dinlemez (baslangicta uyari loglanir).
 - Bu dosyayi (memory.md) guncelle.
 
 ## Yapilanlar / Durum
+- [2026-10-13] **5. islem: 100 uzerinden puan + ayrintili rapor dosyasi.**
+  Model ilk satira `PUAN: NN/100` yaziyor; Webex'e puan + ozet + bulgu sayilari
+  + dosya yolu gidiyor, ayrintili inceleme `SHARED_FOLDER`'a .md yaziliyor.
+  test-offline.js'e 11 test.
+- [2026-10-13] **5. islem eklendi — branch kod incelemesi (yerel yapay zeka).**
+  `lib/kodReview.js`; index.js'te menu + `handleOperationFive` + `case '5'`;
+  6. isleme `gitMesgulMu` kontrolu; `liquibaseRun.js` `calistir`'i export ediyor.
+  Dogrulama: sahte git uzak deposu + sahte OpenAI sunucusu ile uctan uca
+  (yalnizca talep commit'leri toplandi, istek govdesi/basliklari dogru, calisma
+  kopyasi prod'da kaldi) ve framework taklidiyle Webex mesaj akisi.
+  test-offline.js'e 22 test. **Gercek model ve gercek depo ile denenmedi.**
 - [2026-10-13] **Makine bazli dinleme: `DINLENEN_ISLEMLER`.** Bot birden fazla
   bilgisayarda calisabilsin diye her kopya yalnizca `.env`'de verilen islemlere
   yanit veriyor (`lib/permissions.js` > `loadListenedOps`, index.js > `LISTENED`).

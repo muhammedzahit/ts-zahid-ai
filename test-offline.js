@@ -275,6 +275,60 @@ for (const [desc, ok] of liquibaseCases) {
 }
 console.log(`\nLiquibase cikti ayristirma: ${liquibasePass}/${liquibaseCases.length} gecti`);
 
+// --- 5. islem: kod incelemesi (saf fonksiyonlar, git/LLM cagrisi yok) -------
+const kr = require('./lib/kodReview');
+
+const uzunMetin = ['**Ozet**', 'x'.repeat(50), '```java', ...Array.from({ length: 400 }, (_, i) => `satir ${i} şğüöçı`), '```', 'son'].join('\n');
+const krParcalar = kr.parcala(uzunMetin, 2000);
+const tekUzunSatir = kr.parcala('ş'.repeat(5000), 2000);
+
+const krCases = [
+  ['branch + talep anahtari', kr.branchCoz('APTY-123').aranan === 'APTY-123'],
+  ['feature/ onekli branch', kr.branchCoz('feature/apty-77 full').branch === 'feature/apty-77' && kr.branchCoz('feature/apty-77').aranan === 'APTY-77'],
+  ['anahtarsiz branch adi aranir', kr.branchCoz('hotfix-login').aranan === 'hotfix-login'],
+  ['bos girdi', kr.branchCoz('  ').hata === 'bos'],
+  ['- ile baslayan reddedilir', !!kr.branchCoz('--upload-pack=x').hata],
+  ['.. iceren reddedilir', !!kr.branchCoz('a..b').hata],
+  ['ozel karakter reddedilir', !!kr.branchCoz('a;rm').hata],
+  ['log ayristirma', (() => { const c = kr.logAyristir('abc\x1fab\x1fAli\x1f2026-10-01\x1fAPTY-1 update\n'); return c.length === 1 && c[0].mesaj === 'APTY-1 update' && c[0].yazar === 'Ali'; })()],
+  ['think blogu temizlenir', kr.dusunceyiTemizle('<think>a\nb</think>\nCevap') === 'Cevap'],
+  ['parcalar bayt sinirinda', krParcalar.every((p) => Buffer.byteLength(p) <= 2000)],
+  ['birden fazla parca', krParcalar.length > 1],
+  ['kod blogu her parcada dengeli', krParcalar.every((p) => (p.match(/^```/gm) || []).length % 2 === 0)],
+  ['icerik kaybolmaz', krParcalar.join('\n').includes('satir 399 şğüöçı') && krParcalar.join('\n').includes('son')],
+  ['tek uzun satir bolunur', tekUzunSatir.length > 1 && tekUzunSatir.every((p) => Buffer.byteLength(p) <= 2000)],
+  ['kisa metin tek parca', kr.parcala('merhaba').length === 1],
+  ['varsayilan model strata', kr.llmAyarlari({}).model === 'strata'],
+  ['varsayilan reasoning high', kr.llmAyarlari({}).reasoning === 'high'],
+  ['reasoning - ise gonderilmez', kr.llmAyarlari({ LLM_REASONING_EFFORT: '-' }).reasoning === ''],
+  ['varsayilan timeout 30 dk', kr.llmAyarlari({}).timeoutMs === 1800000],
+  ['baglanti hatasi Turkce', kr.hataMesaji({ code: 'ECONNREFUSED', message: '' }).includes('ulasilamadi')],
+  ['menude yerel AI uyarisi var', kr.YEREL_AI_UYARISI.includes('gonderilmez')],
+  ['puan okunur ve govdeden ayrilir', (() => { const r = kr.puanAyristir('PUAN: 78/100\n\n**Ozet**\nx'); return r.puan === 78 && r.govde.startsWith('**Ozet**'); })()],
+  ['kalin yazilmis puan okunur', kr.puanAyristir('**PUAN:** 85/100\n**Ozet**').puan === 85],
+  ['puan bosluklu yazilsa da okunur', kr.puanAyristir('puan : 40 / 100\nmetin').puan === 40],
+  ['puan yoksa null', kr.puanAyristir('**Ozet**\nx').puan === null],
+  ['100 ustu puan 100e cekilir', kr.puanAyristir('PUAN: 150/100').puan === 100],
+  ['puan etiketi renkli', kr.puanEtiketi(90).startsWith('🟢') && kr.puanEtiketi(70).startsWith('🟡') && kr.puanEtiketi(30).startsWith('🔴')],
+  ['puan yoksa etiket', kr.puanEtiketi(null).includes('verilmedi')],
+  ['ozet bolumu cikarilir', kr.ozetCikar('**Ozet**\nBolme eklendi.\n\n**Bulgular**\n🟠 a') === 'Bolme eklendi.'],
+  ['ozet basligi yoksa bastan alinir', kr.ozetCikar('duz metin') === 'duz metin'],
+  ['bulgular sayilir', (() => { const b = kr.bulguSay('🔴 a\n🟠 b\n🟠 c\n🟡 d'); return b.kritik === 1 && b.onemli === 2 && b.kucuk === 1; })()],
+  ['raporda puan ve commit var', (() => { const r = kr.raporOlustur({ branch: 'APTY-1', ref: 'origin/APTY-1', commitler: [{ kisa: 'abc', tarih: 't', yazar: 'Ali', mesaj: 'APTY-1 update' }], govde: 'G', puan: 64, model: 'strata', sureSn: 5 }); return r.includes('**Puan:** 64/100') && r.includes('APTY-1 update') && r.includes('## Inceleme\n\nG'); })()],
+];
+
+let krPass = 0;
+for (const [desc, ok] of krCases) {
+  console.log(`${ok ? 'PASS' : 'FAIL'} | ${desc}`);
+  if (ok) krPass++;
+}
+console.log(`\nKod incelemesi: ${krPass}/${krCases.length} gecti`);
+
+// LLM_BASE_URL yoksa ag cagrisi yapilmadan anlasilir hata verilmeli.
+kr.llmIncele({ branch: 'X-1', commitler: [], diff: '' }, {})
+  .then(() => console.log('FAIL | LLM_BASE_URL yoksa hata'))
+  .catch((err) => console.log(`${err.message.includes('LLM_BASE_URL') ? 'PASS' : 'FAIL'} | LLM_BASE_URL yoksa hata`));
+
 // tempPassword modulu yuklenebiliyor mu?
 require('./lib/tempPassword');
 console.log('lib/tempPassword.js yuklendi.');
