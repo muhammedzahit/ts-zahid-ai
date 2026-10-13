@@ -326,7 +326,15 @@ hicbir odayi dinlemez (baslangicta uyari loglanir).
 
 ## Bilinen Sinirlar
 - `webex-node-bot-framework` 2.5.1'de kalindi: 3.0.0 Node >= 22 istiyor
-  (makinede Node 20.16 var) ve 2.x serisinin son surumu zaten 2.5.1.
+  ve 2.x serisinin son surumu zaten 2.5.1.
+- **Node 21+ (22, 24) uyumu:** Node 21'den itibaren `globalThis.navigator` yerlesik
+  ve yalnizca getter'li; webex SDK 2.60.0 (`@webex/internal-media-core`) yuklenirken
+  `global.navigator = {...}` atadigi icin bot acilista `TypeError: Cannot set
+  property navigator ... which has only a getter` ile cokuyordu. `index.js`'in en
+  basinda, framework require edilmeden ONCE ozellik yazilabilir hale getiriliyor
+  (Node 20'de ozellik yok, kod bir sey yapmaz). Node bayragi
+  `--no-experimental-global-navigator` de cozuyor ama Node 20'de `bad option`
+  verdigi icin tercih edilmedi.
   Framework, webex SDK'yi tam `2.60.0`'a sabitliyor; bu SDK uzun calismada
   bellek sizdiriyor (mercury/websocket olay cache'i sinirsiz buyuyor).
   Cozum operasyonel: pm2 `max_memory_restart: 1G` esiginde temiz restart.
@@ -358,6 +366,8 @@ hicbir odayi dinlemez (baslangicta uyari loglanir).
 - Bu dosyayi (memory.md) guncelle.
 
 ## Yapilanlar / Durum
+- [2026-10-13] **Node 24'te acilis cokmesi duzeltildi** (webex SDK navigator
+  atamasi). Detay: Bilinen Sinirlar > Node 21+ uyumu. Node 22'de dogrulandi.
 - [2026-10-13] **5. islem: 100 uzerinden puan + ayrintili rapor dosyasi.**
   Model ilk satira `PUAN: NN/100` yaziyor; Webex'e puan + ozet + bulgu sayilari
   + dosya yolu gidiyor, ayrintili inceleme `SHARED_FOLDER`'a .md yaziliyor.
