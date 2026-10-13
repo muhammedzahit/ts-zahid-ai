@@ -289,7 +289,9 @@ hicbir odayi dinlemez (baslangicta uyari loglanir).
   `lib/dbSor.js`, `lib/jiraSuggest.js`, `lib/makara.js`, `lib/kodSor.js` ve
   `roomid.js` silindi, test-offline.js'teki 7/8 testleri cikarildi.
   `.env.example`'tan `DB_SOR_URL`, `WEBEX_USER_TOKEN` ve `WEBEX_KOPRU_ODA_ID`
-  atildi. Asagidaki eski kayitlar tarihce olarak duruyor.
+  atildi. Kodda okunmayan `WEBEX_CLIENT_ID/SECRET/REDIRECT_URI` ve islemi
+  kalmayan `WEBEX_ROOM_ID_GRUP3(_YETKILER)` de `.env.example`'tan cikarildi.
+  Asagidaki eski kayitlar tarihce olarak duruyor.
 - [2026-09-12] **9. islem derinlestirildi: ajan artik KODU OKUYOR.**
   - Yeni `git_diff` araci: bir talebin fiili kod degisikligi. Buyuk talepte
     sayfalanir ("sayfa 2/5"), ajan sayfalari sirayla okuyup ozetliyor.
