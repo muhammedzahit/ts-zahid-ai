@@ -138,6 +138,26 @@ for (const [desc, ok] of permCases) {
 }
 console.log(`\nYetki: ${permPass}/${permCases.length} gecti`);
 
+// Makine bazli dinleme (DINLENEN_ISLEMLER) testleri
+const { loadListenedOps } = require('./lib/permissions');
+
+const dinleCases = [
+  ['tanimsiz → hepsi dinlenir', isAllowed(loadListenedOps({}), '6')],
+  ['bos → hepsi dinlenir', isAllowed(loadListenedOps({ DINLENEN_ISLEMLER: '  ' }), '1')],
+  ['all → hepsi dinlenir', isAllowed(loadListenedOps({ DINLENEN_ISLEMLER: 'ALL' }), '4')],
+  ['"1,2,3" → 2 dinlenir', isAllowed(loadListenedOps({ DINLENEN_ISLEMLER: '1,2,3' }), '2')],
+  ['"1,2,3" → 4 dinlenmez', !isAllowed(loadListenedOps({ DINLENEN_ISLEMLER: '1,2,3' }), '4')],
+  ['bosluklu liste → 6 dinlenir', isAllowed(loadListenedOps({ DINLENEN_ISLEMLER: ' 4 , 6 ' }), '6')],
+  ['DINLENEN_ISLEMLER grup sayilmaz', loadRoomPermissions({ DINLENEN_ISLEMLER: '1' }).size === 0],
+];
+
+let dinlePass = 0;
+for (const [desc, ok] of dinleCases) {
+  console.log(`${ok ? 'PASS' : 'FAIL'} | ${desc}`);
+  if (ok) dinlePass++;
+}
+console.log(`\nDinlenen islemler: ${dinlePass}/${dinleCases.length} gecti`);
+
 // Merge notlari (4. islem) testleri — gercek not dosyasina dokunmamak icin
 // gecici bir dosya kullanilir; modul MERGE_NOTES_FILE'i require aninda okur.
 const os = require('os');
