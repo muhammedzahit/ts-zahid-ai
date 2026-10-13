@@ -1,0 +1,14 @@
+# PROD veritabani. Gercek degerler .env dosyasindan gelir (run.cmd yukler).
+# Bir degisken tanimsizsa uygulama "Could not resolve placeholder" ile acilista durur.
+#
+# Not: uygulamanin kendi application-prod.yml'i "postgres-php" DNS adini kullanir;
+# o ad yalnizca OpenShift icinden cozulur. Ofis agindan erisilen IP yazilmalidir.
+spring:
+  datasource:
+    url: ${PROD_DB_URL}
+    username: ${PROD_DB_USERNAME}
+    password: ${PROD_DB_PASSWORD}
+
+osem:
+  liquibase:
+    default-schema: ${PROD_DB_SCHEMA:portal}

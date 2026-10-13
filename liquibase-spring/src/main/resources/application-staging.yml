@@ -1,0 +1,11 @@
+# STAGING veritabani. Gercek degerler .env dosyasindan gelir (run.cmd yukler).
+# Bir degisken tanimsizsa uygulama "Could not resolve placeholder" ile acilista durur.
+spring:
+  datasource:
+    url: ${STAGING_DB_URL}
+    username: ${STAGING_DB_USERNAME}
+    password: ${STAGING_DB_PASSWORD}
+
+osem:
+  liquibase:
+    default-schema: ${STAGING_DB_SCHEMA:portal}

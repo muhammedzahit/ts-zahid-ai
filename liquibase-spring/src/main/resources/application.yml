@@ -1,0 +1,34 @@
+# Ortak ayarlar. Veritabani bilgileri profillerde:
+#   application-staging.yml / application-prod.yml
+spring:
+  application:
+    name: liquibase-spring
+  main:
+    web-application-type: none
+  # SpringLiquibase bean'ini LiquibaseConfig elle kuruyor (onizleme modu icin),
+  # bu yuzden Spring Boot'un otomatik konfigurasyonu kapali.
+  liquibase:
+    enabled: false
+  datasource:
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 2
+      minimum-idle: 1
+      connection-timeout: 30000
+      auto-commit: true
+
+osem:
+  liquibase:
+    # Guvenli varsayilan; gercek update icin --osem.liquibase.mode=update gecilir.
+    mode: preview
+    change-log: classpath:db/changelog/changelog-master.xml
+    default-schema: portal
+    output-dir: target/preview
+
+logging:
+  level:
+    root: WARN
+    liquibase: INFO
+    tr.com.osm.liquibase: INFO
+  pattern:
+    console: "%d{HH:mm:ss} %-5level %msg%n"
