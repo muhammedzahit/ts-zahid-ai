@@ -14,6 +14,7 @@ const {
   liquibaseCalistir,
   mesgulMu: liquibaseMesgulMu,
 } = require('./lib/liquibaseRun');
+const kodReview = require('./lib/kodReview');
 
 const config = {
   token: process.env.WEBEX_BOT_TOKEN,
@@ -78,6 +79,17 @@ const OPERATIONS = [
       'Kullanim (araya yeni satir birakin):\n' +
       '```\n4\nCache temizlensin\n```\n' +
       'Birakilan notlar 3. islem calistirildiginda gruba gosterilir ve listeden temizlenir.',
+  },
+  {
+    cmd: '5',
+    menuText:
+      '**5 — Branch kod incelemesi (yerel yapay zeka)**\n' +
+      'Branch adini verin; o branch\'teki talep commit\'leri (ör. `APTY-123 update`) yerel bir yapay zeka modeline incelettirilir.\n' +
+      'Kullanim: `5 APTY-123`\n' +
+      'Alt satira da yazilabilir:\n' +
+      '```\n5\nAPTY-123\n```\n' +
+      'Inceleme birkac dakika surebilir.\n' +
+      kodReview.YEREL_AI_UYARISI,
   },
   {
     cmd: '6',
@@ -279,6 +291,87 @@ async function handleOperationFour(bot, trigger, note) {
   }
 }
 
+// --- 5. islem: Branch kod incelemesi (yerel yapay zeka) -------------------
+
+async function handleOperationFive(bot, rest) {
+  const istek = kodReview.branchCoz(rest);
+  if (istek.hata) {
+    await bot.say(
+      (istek.hata === 'bos' ? '5. islem icin branch adini yazmalisiniz.' : `⚠️ ${istek.hata}`) +
+        '\n\nOrnek:\n```\n5 APTY-123\n```\n' +
+        kodReview.YEREL_AI_UYARISI
+    );
+    return;
+  }
+
+  if (kodReview.mesgulMu()) {
+    await bot.say('⏳ Su anda devam eden bir kod incelemesi var. Bitmesini bekleyip tekrar deneyin.');
+    return;
+  }
+  // Ayni git deposunu 6. islem de kullaniyor.
+  if (liquibaseMesgulMu()) {
+    await bot.say('⏳ Su anda calisan bir liquibase islemi var (ayni git deposu). Bitmesini bekleyip tekrar deneyin.');
+    return;
+  }
+
+  const { branch, aranan } = istek;
+  await bot.say(
+    `${kodReview.YEREL_AI_UYARISI}\n\n` +
+      `🔎 \`${branch}\` branch'i cekiliyor, mesajinda \`${aranan}\` gecen commit'ler araniyor…`
+  );
+
+  let sonuc;
+  try {
+    sonuc = await kodReview.kodReviewYap({
+      branch,
+      aranan,
+      commitlerBulundu: async ({ commitler, kirpildi, fazla }) => {
+        const liste = commitler
+          .slice(-10)
+          .map((c) => `- \`${c.kisa}\` ${c.tarih} · ${c.yazar} · ${c.mesaj}`)
+          .join('\n');
+        await bot.say(
+          `📝 **${commitler.length} commit** bulundu` +
+            (commitler.length > 10 ? ' (son 10 tanesi):' : ':') +
+            `\n${liste}\n\n` +
+            (fazla ? '_Commit siniri asildi; yalnizca en yeni commit\'ler inceleniyor._\n' : '') +
+            (kirpildi ? '_Diff cok buyuk; boyut sinirinda kesildi, kalan kisim incelenmeyecek._\n' : '') +
+            '🤖 Yerel model inceliyor… Bu birkac dakika surebilir.'
+        );
+      },
+    });
+  } catch (err) {
+    await bot.say(`❌ Kod incelemesi yapilamadi:\n${kodReview.hataMesaji(err)}`);
+    return;
+  }
+
+  if (!sonuc.ok) {
+    await bot.say(`⚠️ ${sonuc.mesaj}`);
+    return;
+  }
+
+  const baslik =
+    `🧐 **Kod incelemesi — \`${branch}\`** (${sonuc.commitler.length} commit · ` +
+    `model \`${sonuc.model}\` · ${sonuc.sureSn} sn)` +
+    (sonuc.yarim ? '\n_Model token sinirina takildi; inceleme yarim kalmis olabilir._' : '');
+  const tamMetin = `${baslik}\n\n${sonuc.metin}`;
+  const dosya = kodReview.dosyayaYaz(branch, tamMetin);
+
+  const parcalar = kodReview.parcala(tamMetin);
+  const gonderilecek = parcalar.slice(0, kodReview.WEBEX_MAKS_PARCA);
+  for (const parca of gonderilecek) {
+    await bot.say(parca);
+  }
+  if (parcalar.length > gonderilecek.length || dosya) {
+    await bot.say(
+      (parcalar.length > gonderilecek.length
+        ? `✂️ Inceleme cok uzun; ilk ${gonderilecek.length}/${parcalar.length} parca gosterildi.\n`
+        : '') +
+        (dosya ? `📄 Tam inceleme:\n\`\`\`\n${dosya}\n\`\`\`` : '')
+    );
+  }
+}
+
 // --- 6. islem: Liquibase ---------------------------------------------------
 
 // Prod'a yazmadan once onizleme zorunlu. Onizleme sonucu odaya ozel saklanir;
@@ -342,6 +435,12 @@ async function handleOperationSix(bot, trigger, rest) {
 
   if (liquibaseMesgulMu()) {
     await bot.say('⏳ Su anda calisan bir liquibase islemi var. Bitmesini bekleyip tekrar deneyin.');
+    return;
+  }
+
+  // 5. islem ayni depoda branch fetch ediyorsa git cakismasin.
+  if (kodReview.gitMesgulMu()) {
+    await bot.say('⏳ Kod incelemesi su anda ayni git deposundan branch cekiyor. Birkac saniye sonra tekrar deneyin.');
     return;
   }
 
@@ -544,6 +643,9 @@ framework.hears(/.*/, async (bot, trigger) => {
       break;
     case '4':
       await handleOperationFour(bot, trigger, rest);
+      break;
+    case '5':
+      await handleOperationFive(bot, rest);
       break;
     case '6':
       await handleOperationSix(bot, trigger, rest);
