@@ -159,6 +159,9 @@ Akis:
    sonra `git log origin/<b> --no-merges -i -F --grep=<anahtar>` (en fazla
    `KOD_REVIEW_MAX_COMMIT`=30), her commit icin `git show --stat --patch`.
    Toplam diff `KOD_REVIEW_MAX_DIFF_CHARS`=300000 karakterde kesilir.
+   Iki sinir da `sinirOku` ile okunur: 0 / "sinirsiz" / >=1e9 → sinirsiz
+   (commit sinirsizsa `git log`'a `-n` verilmez — Windows'ta git -n'i 32 bit int
+   okur, 2147483647+1 "not an integer" hatasi veriyordu).
    **Calisma kopyasina dokunulmaz** (checkout yok) — 6. islemin `prod`
    checkout'u bozulmaz. Ayni anda liquibase calisiyorsa 5 reddedilir; 5 fetch
    ederken (`gitMesgulMu`) 6 reddedilir.
@@ -366,6 +369,9 @@ hicbir odayi dinlemez (baslangicta uyari loglanir).
 - Bu dosyayi (memory.md) guncelle.
 
 ## Yapilanlar / Durum
+- [2026-10-13] 5. islem: `KOD_REVIEW_MAX_COMMIT=2147483647` iken Windows'ta git
+  `'2147483648': not an integer` veriyordu. Sinirlar `sinirOku` ile okunuyor;
+  0/"sinirsiz"/cok buyuk = sinirsiz, o durumda `-n` gonderilmiyor.
 - [2026-10-13] **Node 24'te acilis cokmesi duzeltildi** (webex SDK navigator
   atamasi). Detay: Bilinen Sinirlar > Node 21+ uyumu. Node 22'de dogrulandi.
 - [2026-10-13] **5. islem: 100 uzerinden puan + ayrintili rapor dosyasi.**
