@@ -238,6 +238,29 @@ Kurallar:
 - Duz `WEBEX_ROOM_ID` (soneksiz) grup sayilmaz, kodda kullanilmiyor.
 - Baslangicta `initialized` logunda yuklu gruplar ve yetkileri yazdirilir.
 
+## Birden Fazla Bilgisayarda Calistirma
+Bot ayni anda birden fazla makinede calistirilabilir (makinelerin yetkileri
+farkli: or. biri prod DB'ye, digeri Argo'ya erisiyor). Her makinenin `.env`'inde:
+```
+DINLENEN_ISLEMLER=1,2,3     # 1. bilgisayar
+DINLENEN_ISLEMLER=4,6       # 2. bilgisayar
+```
+- Bos/tanimsiz ya da `all` = hepsi (tek makinelik kurulum degismeden calisir).
+- Dinlenmeyen islem komutu **sessizce yoksayilir** (sadece console log);
+  o islemi diger makinedeki kopya cevaplar. Grup yetkisi (`_YETKILER`) bundan
+  ayri ve onceden oldugu gibi uygulanir: islem hem grupta yetkili hem bu
+  kopyada dinleniyor olmali.
+- Menu (`islemler`) her kopyada yalnizca o kopyanin dinledigi islemleri
+  listeler; grupta dinledigi hicbir islem yoksa o kopya menu basmaz. Ayni bot
+  token'i iki makinede kullaniliyorsa `islemler` ve anlasilmayan komutlara
+  iki ayri mesaj gelir (her biri kendi parcasini gosterir) — beklenen durum.
+- Kopyalar arasi cakisma KONTROL EDILMEZ; ayni islem iki makinede dinlenirse
+  iki kez calisir. Dagilim `.env`'lerde dogru yapilmali.
+- DIKKAT: 4. islemin notlari `data/mergeNotes.json`'da (makineye yerel) tutulur
+  ve 3. islemde gosterilir. 3 ve 4 farkli makinelerdeyse notlar gorunmez —
+  ya ayni makinede tutun ya da iki makinede `MERGE_NOTES_FILE`'i ortak bir
+  ag klasorundeki ayni dosyaya yonlendirin.
+
 ## Calistirma
 Uretimde bot pm2 altinda calisir (dogrudan `npm start` KULLANMA — pm2'deki
 kopya ile ayni anda iki bot calisir, mesajlar cift gider):
@@ -288,6 +311,11 @@ hicbir odayi dinlemez (baslangicta uyari loglanir).
 - Bu dosyayi (memory.md) guncelle.
 
 ## Yapilanlar / Durum
+- [2026-10-13] **Makine bazli dinleme: `DINLENEN_ISLEMLER`.** Bot birden fazla
+  bilgisayarda calisabilsin diye her kopya yalnizca `.env`'de verilen islemlere
+  yanit veriyor (`lib/permissions.js` > `loadListenedOps`, index.js > `LISTENED`).
+  Bos = hepsi. Detay: "Birden Fazla Bilgisayarda Calistirma". test-offline.js'e
+  7 test eklendi.
 - [2026-10-13] **liquibase-spring repoya alindi** (`liquibase-spring/`).
   `lib/liquibaseRun.js` > `PROJECT_DIR` artik varsayilan olarak bu klasoru
   gosteriyor (`path.resolve(__dirname, '..', LIQUIBASE_PROJECT_DIR || 'liquibase-spring')`);

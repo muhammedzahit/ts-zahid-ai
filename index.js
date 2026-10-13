@@ -7,7 +7,7 @@ const { changeTemporaryPassword } = require('./lib/tempPassword');
 const { handleSelectQuery } = require('./lib/dbQuery');
 const { stripBotMention, parseInput, htmlToText, parseMergeInterval } = require('./lib/parse');
 const ArgoControl = require('./lib/mergeControl');
-const { loadRoomPermissions, isAllowed } = require('./lib/permissions');
+const { loadRoomPermissions, loadListenedOps, isAllowed } = require('./lib/permissions');
 const { addNote, listNotes, clearNotes, formatNotes } = require('./lib/mergeNotes');
 const {
   changeloglariSenkronla,
@@ -27,6 +27,11 @@ const config = {
 // Burada tanimli olmayan oda/DM'lerden gelen mesajlar tamamen yoksayilir.
 const ROOM_PERMS = loadRoomPermissions(process.env);
 
+// Bu kopyanin (makinenin) dinledigi islemler (.env: DINLENEN_ISLEMLER="1,2,3").
+// Bos = hepsi. Dinlenmeyen islem komutlari sessizce yoksayilir; o islemi baska
+// bir makinedeki kopya cevaplar. Kopyalar arasi cakisma kontrol edilmez.
+const LISTENED = loadListenedOps(process.env);
+
 const framework = new Framework(config);
 
 framework.start();
@@ -40,6 +45,8 @@ framework.on('initialized', () => {
     const yetkiler = perm.all ? 'all' : ([...perm.allowed].join(',') || '(yok)');
     console.log(`Grup yuklendi: ${perm.group} → yetkiler: ${yetkiler}`);
   }
+  const dinlenen = LISTENED.all ? 'all' : ([...LISTENED.allowed].join(',') || '(yok)');
+  console.log(`Bu kopyanin dinledigi islemler (DINLENEN_ISLEMLER): ${dinlenen}`);
 });
 
 const OPERATIONS = [
@@ -86,11 +93,18 @@ const OPERATIONS = [
   },
 ];
 
+/**
+ * Menu yalnizca bu grupta yetkili VE bu kopyanin dinledigi islemleri listeler.
+ * Grupta yetkili islem olup hicbirini bu kopya dinlemiyorsa null doner: menuyu
+ * diger makinedeki kopya basar, bu kopya sessiz kalir.
+ */
 function buildMenu(perm) {
-  const items = OPERATIONS.filter((op) => isAllowed(perm, op.cmd));
-  if (items.length === 0) {
+  const yetkili = OPERATIONS.filter((op) => isAllowed(perm, op.cmd));
+  if (yetkili.length === 0) {
     return '**OSEM Islem Botu** — bu grupta yetkili islem tanimlanmamis. (.env\'de `WEBEX_ROOM_ID_<GRUP>_YETKILER` satirini kontrol edin.)';
   }
+  const items = yetkili.filter((op) => isAllowed(LISTENED, op.cmd));
+  if (items.length === 0) return null;
   return (
     '**OSEM Islem Botu** — bu grupta yapilabilecek islemler:\n\n' +
     items.map((op) => op.menuText).join('\n\n') +
@@ -495,17 +509,26 @@ framework.hears(/.*/, async (bot, trigger) => {
   const cmdLower = command.toLowerCase();
 
   if (cmdLower === 'islemler' || cmdLower === 'help' || cmdLower === 'yardim' || cmdLower === '') {
-    await bot.say(buildMenu(perm));
+    const menu = buildMenu(perm);
+    if (menu) await bot.say(menu);
     return;
   }
 
   if (!OPERATIONS.some((op) => op.cmd === command)) {
-    await bot.say(`Anlasilmayan komut: \`${command}\`\n\n${buildMenu(perm)}`);
+    const menu = buildMenu(perm);
+    if (menu) await bot.say(`Anlasilmayan komut: \`${command}\`\n\n${menu}`);
+    return;
+  }
+
+  // Bu islem baska bir makinedeki kopyaya ait — cevap verme.
+  if (!isAllowed(LISTENED, command)) {
+    console.log(`Islem ${command} bu kopyada dinlenmiyor (DINLENEN_ISLEMLER), yoksayildi.`);
     return;
   }
 
   if (!isAllowed(perm, command)) {
-    await bot.say(`⛔ \`${command}\` islemi bu grupta yetkili degil.\n\n${buildMenu(perm)}`);
+    const menu = buildMenu(perm);
+    await bot.say(`⛔ \`${command}\` islemi bu grupta yetkili degil.${menu ? `\n\n${menu}` : ''}`);
     return;
   }
 
