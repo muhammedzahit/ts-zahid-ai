@@ -304,6 +304,17 @@ const krCases = [
   ['varsayilan timeout 30 dk', kr.llmAyarlari({}).timeoutMs === 1800000],
   ['baglanti hatasi Turkce', kr.hataMesaji({ code: 'ECONNREFUSED', message: '' }).includes('ulasilamadi')],
   ['menude yerel AI uyarisi var', kr.YEREL_AI_UYARISI.includes('gonderilmez')],
+  ['puan okunur ve govdeden ayrilir', (() => { const r = kr.puanAyristir('PUAN: 78/100\n\n**Ozet**\nx'); return r.puan === 78 && r.govde.startsWith('**Ozet**'); })()],
+  ['kalin yazilmis puan okunur', kr.puanAyristir('**PUAN:** 85/100\n**Ozet**').puan === 85],
+  ['puan bosluklu yazilsa da okunur', kr.puanAyristir('puan : 40 / 100\nmetin').puan === 40],
+  ['puan yoksa null', kr.puanAyristir('**Ozet**\nx').puan === null],
+  ['100 ustu puan 100e cekilir', kr.puanAyristir('PUAN: 150/100').puan === 100],
+  ['puan etiketi renkli', kr.puanEtiketi(90).startsWith('🟢') && kr.puanEtiketi(70).startsWith('🟡') && kr.puanEtiketi(30).startsWith('🔴')],
+  ['puan yoksa etiket', kr.puanEtiketi(null).includes('verilmedi')],
+  ['ozet bolumu cikarilir', kr.ozetCikar('**Ozet**\nBolme eklendi.\n\n**Bulgular**\n🟠 a') === 'Bolme eklendi.'],
+  ['ozet basligi yoksa bastan alinir', kr.ozetCikar('duz metin') === 'duz metin'],
+  ['bulgular sayilir', (() => { const b = kr.bulguSay('🔴 a\n🟠 b\n🟠 c\n🟡 d'); return b.kritik === 1 && b.onemli === 2 && b.kucuk === 1; })()],
+  ['raporda puan ve commit var', (() => { const r = kr.raporOlustur({ branch: 'APTY-1', ref: 'origin/APTY-1', commitler: [{ kisa: 'abc', tarih: 't', yazar: 'Ali', mesaj: 'APTY-1 update' }], govde: 'G', puan: 64, model: 'strata', sureSn: 5 }); return r.includes('**Puan:** 64/100') && r.includes('APTY-1 update') && r.includes('## Inceleme\n\nG'); })()],
 ];
 
 let krPass = 0;

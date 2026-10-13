@@ -350,26 +350,36 @@ async function handleOperationFive(bot, rest) {
     return;
   }
 
+  // Ayrintili rapor SHARED_FOLDER'a yazilir; Webex'e puan + ozet + dosya yolu gider.
+  const dosya = kodReview.dosyayaYaz(branch, kodReview.raporOlustur({ branch, ...sonuc }));
+  const bulgu = kodReview.bulguSay(sonuc.govde);
   const baslik =
-    `🧐 **Kod incelemesi — \`${branch}\`** (${sonuc.commitler.length} commit · ` +
-    `model \`${sonuc.model}\` · ${sonuc.sureSn} sn)` +
+    `🧐 **Kod incelemesi — \`${branch}\`** · Puan: ${kodReview.puanEtiketi(sonuc.puan)}\n` +
+    `${sonuc.commitler.length} commit · model \`${sonuc.model}\` (yerel) · ${sonuc.sureSn} sn` +
     (sonuc.yarim ? '\n_Model token sinirina takildi; inceleme yarim kalmis olabilir._' : '');
-  const tamMetin = `${baslik}\n\n${sonuc.metin}`;
-  const dosya = kodReview.dosyayaYaz(branch, tamMetin);
 
-  const parcalar = kodReview.parcala(tamMetin);
+  if (dosya) {
+    await bot.say(
+      `${baslik}\n\n` +
+        `**Ozet**\n${kodReview.ozetCikar(sonuc.govde)}\n\n` +
+        `**Bulgular:** 🔴 ${bulgu.kritik} kritik · 🟠 ${bulgu.onemli} onemli · 🟡 ${bulgu.kucuk} kucuk\n\n` +
+        `📄 Ayrintili inceleme:\n\`\`\`\n${dosya}\n\`\`\``
+    );
+    return;
+  }
+
+  // SHARED_FOLDER yok/yazilamadi: inceleme sohbete parca parca basilir.
+  const parcalar = kodReview.parcala(`${baslik}\n\n${sonuc.govde}`);
   const gonderilecek = parcalar.slice(0, kodReview.WEBEX_MAKS_PARCA);
   for (const parca of gonderilecek) {
     await bot.say(parca);
   }
-  if (parcalar.length > gonderilecek.length || dosya) {
-    await bot.say(
-      (parcalar.length > gonderilecek.length
-        ? `✂️ Inceleme cok uzun; ilk ${gonderilecek.length}/${parcalar.length} parca gosterildi.\n`
-        : '') +
-        (dosya ? `📄 Tam inceleme:\n\`\`\`\n${dosya}\n\`\`\`` : '')
-    );
-  }
+  await bot.say(
+    (parcalar.length > gonderilecek.length
+      ? `✂️ Inceleme cok uzun; ilk ${gonderilecek.length}/${parcalar.length} parca gosterildi.\n`
+      : '') +
+      '⚠️ Ayrintili rapor dosyaya yazilamadi (`SHARED_FOLDER` tanimli/erisilebilir degil).'
+  );
 }
 
 // --- 6. islem: Liquibase ---------------------------------------------------

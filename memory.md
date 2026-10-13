@@ -166,12 +166,21 @@ Akis:
    LLM_API_KEY`, `model`=`LLM_MODEL` (strata), `reasoning_effort`=high,
    `max_tokens`=49152, timeout 30 dk, stream yok. Cevaptaki `<think>` blogu atilir.
    Sistem mesaji Turkce, bulgular 🔴/🟠/🟡 onem sirasiyla.
-4. Cevap Webex'e 6000 baytlik parcalar halinde basilir (acik ``` bloklari
-   parca sinirinda kapatilip yeniden acilir), en fazla 15 parca. `SHARED_FOLDER`
-   varsa tam inceleme `kod_review_<branch>_<zaman>.md` olarak oraya da yazilir.
-5. Menude ve islem baslarken "yerel yapay zeka, veriler OpenAI/Anthropic/Google
+4. **Puan:** model cevabin ilk satirina `PUAN: NN/100` yazar (sistem mesajinda
+   olcek: 90+ sorunsuz, 70-89 kucuk/orta, 50-69 onemli, <50 kritik; 🔴 varsa <50).
+   `puanAyristir` satiri okuyup metinden ayirir (kalin/bosluklu yazim da okunur,
+   bulunamazsa "puan verilmedi"). Bulgular her satirin basindaki 🔴/🟠/🟡 ile
+   sayilir (`bulguSay`); model bu emojileri baska yerde kullanmasin diye uyarildi.
+5. **Cikti:** ayrintili rapor (`raporOlustur`: puan, branch, model, commit
+   listesi, notlar, tam inceleme) `SHARED_FOLDER`'a
+   `kod_review_<branch>_<zaman>.md` olarak yazilir; Webex'e yalnizca puan
+   (🟢 85+ / 🟡 60+ / 🔴), **Ozet** bolumu, bulgu sayilari ve dosya yolu gider.
+   `SHARED_FOLDER` yoksa/yazilamazsa tam inceleme sohbete 6000 baytlik
+   parcalarla basilir (acik ``` bloklari parca sinirinda kapatilip yeniden
+   acilir, en fazla 15 parca).
+6. Menude ve islem baslarken "yerel yapay zeka, veriler OpenAI/Anthropic/Google
    gibi sirketlere gitmez" uyarisi (`YEREL_AI_UYARISI`) basilir.
-6. Ayni anda tek inceleme (`mesgulMu()`).
+7. Ayni anda tek inceleme (`mesgulMu()`).
 
 Model: kullanicinin DeepSeek harness'ta da kullandigi "Strata" (OpenAI
 completions uyumlu, 262k baglam, 49152 max token). Adres ve anahtar yalnizca
@@ -349,6 +358,10 @@ hicbir odayi dinlemez (baslangicta uyari loglanir).
 - Bu dosyayi (memory.md) guncelle.
 
 ## Yapilanlar / Durum
+- [2026-10-13] **5. islem: 100 uzerinden puan + ayrintili rapor dosyasi.**
+  Model ilk satira `PUAN: NN/100` yaziyor; Webex'e puan + ozet + bulgu sayilari
+  + dosya yolu gidiyor, ayrintili inceleme `SHARED_FOLDER`'a .md yaziliyor.
+  test-offline.js'e 11 test.
 - [2026-10-13] **5. islem eklendi — branch kod incelemesi (yerel yapay zeka).**
   `lib/kodReview.js`; index.js'te menu + `handleOperationFive` + `case '5'`;
   6. isleme `gitMesgulMu` kontrolu; `liquibaseRun.js` `calistir`'i export ediyor.
