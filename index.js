@@ -46,12 +46,28 @@ const ROOM_PERMS = loadRoomPermissions(process.env);
 // bir makinedeki kopya cevaplar. Kopyalar arasi cakisma kontrol edilmez.
 const LISTENED = loadListenedOps(process.env);
 
+// Calisan kodun surumu (git commit). Birden fazla makinede farkli surum calisirsa
+// (biri guncellenmemisse) loglardan anlasilsin diye acilista yazdirilir.
+function kodSurumu() {
+  try {
+    return require('child_process')
+      .execFileSync('git', ['-C', __dirname, 'log', '-1', '--format=%h (%cd)', '--date=short'], {
+        stdio: ['ignore', 'pipe', 'ignore'],
+        windowsHide: true,
+      })
+      .toString()
+      .trim();
+  } catch (_) {
+    return 'bilinmiyor';
+  }
+}
+
 const framework = new Framework(config);
 
 framework.start();
 
 framework.on('initialized', () => {
-  console.log('OSEM bot baslatildi ve dinlemede.');
+  console.log(`OSEM bot baslatildi ve dinlemede. Kod surumu: ${kodSurumu()}`);
   if (ROOM_PERMS.size === 0) {
     console.log('UYARI: env\'de WEBEX_ROOM_ID_<GRUP> tanimi yok — bot hicbir odayi dinlemeyecek.');
   }
@@ -101,6 +117,7 @@ const OPERATIONS = [
       'Kullanim: `5 APTY-123`\n' +
       'Alt satira da yazilabilir:\n' +
       '```\n5\nAPTY-123\n```\n' +
+      'Model inceleme sirasinda branch\'in kodunu ve STAGING veritabanini **yalnizca okuyarak** arastirabilir.\n' +
       'Inceleme birkac dakika surebilir.\n' +
       kodReview.YEREL_AI_UYARISI,
   },
@@ -338,6 +355,13 @@ async function handleOperationFive(bot, rest) {
     sonuc = await kodReview.kodReviewYap({
       branch,
       aranan,
+      olay: (tur, veri) => {
+        if (tur === 'arac') {
+          console.log(`Kod incelemesi [${branch}] adim ${veri.adim}: ${veri.ad}${veri.hata ? ` (hata: ${veri.hata})` : ''}`);
+        } else {
+          console.log(`Kod incelemesi [${branch}] ${tur}:`, JSON.stringify(veri));
+        }
+      },
       commitlerBulundu: async ({ commitler, kirpildi, fazla }) => {
         const liste = commitler
           .slice(-10)
@@ -349,7 +373,8 @@ async function handleOperationFive(bot, rest) {
             `\n${liste}\n\n` +
             (fazla ? '_Commit siniri asildi; yalnizca en yeni commit\'ler inceleniyor._\n' : '') +
             (kirpildi ? '_Diff cok buyuk; boyut sinirinda kesildi, kalan kisim incelenmeyecek._\n' : '') +
-            '🤖 Yerel model inceliyor… Bu birkac dakika surebilir.'
+            '🤖 Yerel model inceliyor; gerekirse kodu ve STAGING veritabanini **yalnizca okuyarak** arastiracak. ' +
+            'Bu birkac dakika surebilir.'
         );
       },
     });
@@ -368,7 +393,8 @@ async function handleOperationFive(bot, rest) {
   const bulgu = kodReview.bulguSay(sonuc.govde);
   const baslik =
     `🧐 **Kod incelemesi — \`${branch}\`** · Puan: ${kodReview.puanEtiketi(sonuc.puan)}\n` +
-    `${sonuc.commitler.length} commit · model \`${sonuc.model}\` (yerel) · ${sonuc.sureSn} sn` +
+    `${sonuc.commitler.length} commit · model \`${sonuc.model}\` (yerel) · ${sonuc.sureSn} sn\n` +
+    kodReview.aracOzeti(sonuc) +
     (sonuc.yarim ? '\n_Model token sinirina takildi; inceleme yarim kalmis olabilir._' : '');
 
   if (dosya) {
@@ -637,6 +663,12 @@ framework.hears(/.*/, async (bot, trigger) => {
   }
 
   if (!OPERATIONS.some((op) => op.cmd === command)) {
+    // Bot birden fazla makinede calisiyorsa bu kopyanin tanimadigi sayisal komut,
+    // diger makinedeki (ör. daha yeni surumdeki) kopyaya ait olabilir: sessiz kal.
+    if (!LISTENED.all && /^\d+$/.test(command)) {
+      console.log(`Bilinmeyen islem ${command} yoksayildi (DINLENEN_ISLEMLER dolu; baska kopyaya ait olabilir).`);
+      return;
+    }
     const menu = buildMenu(perm);
     if (menu) await bot.say(`Anlasilmayan komut: \`${command}\`\n\n${menu}`);
     return;
