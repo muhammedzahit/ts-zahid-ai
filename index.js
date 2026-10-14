@@ -101,6 +101,7 @@ const OPERATIONS = [
       'Kullanim: `5 APTY-123`\n' +
       'Alt satira da yazilabilir:\n' +
       '```\n5\nAPTY-123\n```\n' +
+      'Model inceleme sirasinda branch\'in kodunu ve STAGING veritabanini **yalnizca okuyarak** arastirabilir.\n' +
       'Inceleme birkac dakika surebilir.\n' +
       kodReview.YEREL_AI_UYARISI,
   },
@@ -338,6 +339,13 @@ async function handleOperationFive(bot, rest) {
     sonuc = await kodReview.kodReviewYap({
       branch,
       aranan,
+      olay: (tur, veri) => {
+        if (tur === 'arac') {
+          console.log(`Kod incelemesi [${branch}] adim ${veri.adim}: ${veri.ad}${veri.hata ? ` (hata: ${veri.hata})` : ''}`);
+        } else {
+          console.log(`Kod incelemesi [${branch}] ${tur}:`, JSON.stringify(veri));
+        }
+      },
       commitlerBulundu: async ({ commitler, kirpildi, fazla }) => {
         const liste = commitler
           .slice(-10)
@@ -349,7 +357,8 @@ async function handleOperationFive(bot, rest) {
             `\n${liste}\n\n` +
             (fazla ? '_Commit siniri asildi; yalnizca en yeni commit\'ler inceleniyor._\n' : '') +
             (kirpildi ? '_Diff cok buyuk; boyut sinirinda kesildi, kalan kisim incelenmeyecek._\n' : '') +
-            '🤖 Yerel model inceliyor… Bu birkac dakika surebilir.'
+            '🤖 Yerel model inceliyor; gerekirse kodu ve STAGING veritabanini **yalnizca okuyarak** arastiracak. ' +
+            'Bu birkac dakika surebilir.'
         );
       },
     });
@@ -368,7 +377,8 @@ async function handleOperationFive(bot, rest) {
   const bulgu = kodReview.bulguSay(sonuc.govde);
   const baslik =
     `🧐 **Kod incelemesi — \`${branch}\`** · Puan: ${kodReview.puanEtiketi(sonuc.puan)}\n` +
-    `${sonuc.commitler.length} commit · model \`${sonuc.model}\` (yerel) · ${sonuc.sureSn} sn` +
+    `${sonuc.commitler.length} commit · model \`${sonuc.model}\` (yerel) · ${sonuc.sureSn} sn\n` +
+    kodReview.aracOzeti(sonuc) +
     (sonuc.yarim ? '\n_Model token sinirina takildi; inceleme yarim kalmis olabilir._' : '');
 
   if (dosya) {

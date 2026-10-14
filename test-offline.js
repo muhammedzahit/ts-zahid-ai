@@ -330,6 +330,99 @@ for (const [desc, ok] of krCases) {
 }
 console.log(`\nKod incelemesi: ${krPass}/${krCases.length} gecti`);
 
+// --- 5. islem: STAGING salt-okuma + ajan dongusu (DB/ag yok) --------------
+const so = require('./lib/stagingOku');
+const ajan = require('./lib/llmAjan');
+const tmpEnv = pathTest.join(os.tmpdir(), `staging-env-test-${process.pid}`);
+fsTest.writeFileSync(tmpEnv, '# yorum\r\nSTAGING_DB_URL=jdbc:postgresql://db.local:6543/osem_test?currentSchema=portal\r\nSTAGING_DB_USERNAME=okur\r\nSTAGING_DB_PASSWORD=p=1!\r\nPROD_DB_URL=jdbc:postgresql://prod:1/prod\r\nPROD_DB_PASSWORD=gizli\r\n');
+const stEnv = so.stagingEnvOku(tmpEnv);
+const stAyar = so.stagingAyarlari({}, tmpEnv);
+const araclarStagingli = kr.araclariOlustur({ ref: 'origin/X-1', commitler: [], staging: stAyar }).map((a) => a.tanim.function.name);
+const araclarStagingsiz = kr.araclariOlustur({ ref: 'origin/X-1', commitler: [], staging: null }).map((a) => a.tanim.function.name);
+
+const ajanCases = [
+  ['jdbc url cozulur', (() => { const j = so.jdbcCoz('jdbc:postgresql://h:5433/db1?currentSchema=portal'); return j.host === 'h' && j.port === 5433 && j.database === 'db1' && j.schema === 'portal'; })()],
+  ['jdbc port yoksa 5432', so.jdbcCoz('jdbc:postgresql://h/db').port === 5432],
+  ['gecersiz jdbc → null', so.jdbcCoz('postgres://h/db') === null],
+  ['.env yalnizca STAGING anahtarlari', Object.keys(stEnv).every((k) => k.startsWith('STAGING_DB_')) && !('PROD_DB_PASSWORD' in stEnv)],
+  ['sifredeki = korunur', stEnv.STAGING_DB_PASSWORD === 'p=1!'],
+  ['staging ayari kurulur', stAyar && stAyar.host === 'db.local' && stAyar.user === 'okur' && stAyar.schema === 'portal'],
+  ['KOD_REVIEW_STAGING=kapali → null', so.stagingAyarlari({ KOD_REVIEW_STAGING: 'kapali' }, tmpEnv) === null],
+  ['.env yoksa → null', so.stagingAyarlari({}, tmpEnv + '-yok') === null],
+  ['SELECT gecer', so.sorguDogrula('select * from users').ok],
+  ['nextval reddedilir', !so.sorguDogrula("select nextval('s')").ok],
+  ['dblink reddedilir', !so.sorguDogrula("select * from dblink('a','b') t(x int)").ok],
+  ['set_config reddedilir', !so.sorguDogrula("select set_config('a','b',true)").ok],
+  ['FOR SHARE reddedilir', !so.sorguDogrula('select * from users for share').ok],
+  ['DELETE reddedilir', !so.sorguDogrula('delete from users').ok],
+  ['string icindeki nextval yanlis alarm vermez', so.sorguDogrula("select * from log where msg = 'nextval cagrildi'").ok],
+  ['ayni adli kolonlar ezilmez', so.sonucuBicimle({ fields: [{ name: 'a' }, { name: 'a' }], rows: [[1, 2]] }).includes('1 | 2')],
+  ['50 satir siniri bildirilir', so.sonucuBicimle({ fields: [{ name: 'n' }], rows: Array.from({ length: 51 }, (_, i) => [i]) }).includes('ilk 50 satir')],
+  ['NULL ve uzun hucre', (() => { const s = so.sonucuBicimle({ fields: [{ name: 'a' }, { name: 'b' }], rows: [[null, 'x'.repeat(900)]] }); return s.includes('NULL') && s.includes('…'); })()],
+  ['staging varken arac listede', araclarStagingli.includes('staging_sorgu') && araclarStagingli.length === 5],
+  ['staging yokken arac listede degil', !araclarStagingsiz.includes('staging_sorgu') && araclarStagingsiz.length === 4],
+  ['sistem mesajinda salt-okuma kurali', kr.sistemMesaji({ araclarVar: true, stagingVar: true }).includes('YALNIZCA OKUNABILIR')],
+  ['aracsiz sistem mesajinda arac yok', !kr.sistemMesaji().includes('staging_sorgu')],
+  ['buyuk diff karari', kr.buyukDiffMi('x'.repeat(400000), 262144) && !kr.buyukDiffMi('x'.repeat(300000), 262144)],
+  ['varsayilan adim 40, pencere 262144', kr.llmAyarlari({}).maxAdim === 40 && kr.llmAyarlari({}).baglamPenceresi === 262144],
+  ['KOD_REVIEW_ARACLAR=kapali', kr.llmAyarlari({ KOD_REVIEW_ARACLAR: 'kapali' }).araclarKapali === true],
+  ['arac ozeti satiri', kr.aracOzeti({ adim: 4, sikistirma: 1, stagingVar: true, aracKayitlari: [{ ad: 'dosya_oku' }, { ad: 'staging_sorgu' }] }).includes('1 staging sorgusu · 1 sikistirma')],
+  ['aracsiz ozet', kr.aracOzeti({ aracsiz: true }).includes('kullanilmadi')],
+  ['arac sonucu kirpilir', ajan.aracSonucunuKirp('x'.repeat(ajan.ARAC_SONUC_MAKS + 10)).includes('ilk 60000 karakter')],
+  ['token tahmini', ajan.tokenTahmini(300) === 100],
+  ['400 → arac desteklenmiyor', ajan.aracDesteklenmiyorMu({ response: { status: 400 } }) && !ajan.aracDesteklenmiyorMu({ code: 'ECONNREFUSED' })],
+];
+fsTest.unlinkSync(tmpEnv);
+
+let ajanPass = 0;
+for (const [desc, ok] of ajanCases) {
+  console.log(`${ok ? 'PASS' : 'FAIL'} | ${desc}`);
+  if (ok) ajanPass++;
+}
+console.log(`\nStaging + ajan: ${ajanPass}/${ajanCases.length} gecti`);
+
+// Ajan dongusu: yerel sahte sunucu (ag disina cikmaz). Arac cagrisi → sonuc →
+// compact → nihai cevap; compact sonrasi gecmisin sistem+gorev+ozet+devam oldugu.
+(() => {
+  const http = require('http');
+  const istekler = [];
+  const sunucu = http.createServer((req, res) => {
+    let b = '';
+    req.on('data', (d) => { b += d; });
+    req.on('end', () => {
+      const j = JSON.parse(b);
+      istekler.push(j);
+      const son = j.messages[j.messages.length - 1].content || '';
+      let mesaj;
+      if (son.includes('sikistirilacak')) mesaj = { role: 'assistant', content: 'OZET' };
+      else if (istekler.length === 1) mesaj = { role: 'assistant', content: '', tool_calls: [{ id: 'a', type: 'function', function: { name: 'yankila', arguments: '{"x":"' + 'y'.repeat(3000) + '"}' } }] };
+      else mesaj = { role: 'assistant', content: '<think>.</think>PUAN: 90/100\nTamam' };
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ choices: [{ finish_reason: 'stop', message: mesaj }] }));
+    });
+  });
+  sunucu.listen(0, '127.0.0.1', async () => {
+    const ayar = { ...kr.llmAyarlari({}), baseURL: `http://127.0.0.1:${sunucu.address().port}/v1`, reasoning: '' };
+    const kontrol = (desc, ok) => console.log(`${ok ? 'PASS' : 'FAIL'} | ${desc}`);
+    try {
+      const r = await ajan.ajanCalistir({
+        ayar, sistem: 'S', kullanici: 'G', baglamPenceresi: 1200,
+        araclar: [{ tanim: { type: 'function', function: { name: 'yankila', parameters: {} } }, calistir: async ({ x }) => x }],
+      });
+      const sonIstek = istekler[istekler.length - 1];
+      kontrol('ajan: nihai cevap + think temizlendi', r.metin === 'PUAN: 90/100\nTamam');
+      kontrol('ajan: arac calisti', r.aracKayitlari.length === 1 && r.aracKayitlari[0].ad === 'yankila');
+      kontrol('ajan: compact yapildi', r.sikistirma === 1 && istekler.some((j) => j.tool_choice === 'none'));
+      kontrol('ajan: compact sonrasi gecmis', sonIstek.messages.map((m) => m.role).join(',') === 'system,user,assistant,user' && sonIstek.messages[2].content.includes('OZET'));
+      kontrol('ajan: tool_call/tool cifti eslesti', istekler[1].messages[2].tool_calls[0].id === istekler[1].messages[3].tool_call_id);
+    } catch (err) {
+      kontrol(`ajan dongusu (${err.message})`, false);
+    } finally {
+      sunucu.close();
+    }
+  });
+})();
+
 // LLM_BASE_URL yoksa ag cagrisi yapilmadan anlasilir hata verilmeli.
 kr.llmIncele({ branch: 'X-1', commitler: [], diff: '' }, {})
   .then(() => console.log('FAIL | LLM_BASE_URL yoksa hata'))

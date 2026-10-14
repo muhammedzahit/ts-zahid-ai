@@ -38,6 +38,11 @@ sorgusu) Webex uzerinden guvenli sekilde yapabilmek.
   fetch eder (checkout YOK), mesajinda talep anahtari gecen commit'lerin
   patch'lerini toplar, yerel OpenAI uyumlu modele (`/chat/completions`) incelettirir.
   `calistir` yardimcisi `lib/liquibaseRun.js`'ten gelir.
+- **lib/llmAjan.js** — yerel OpenAI uyumlu model icin arac kullanan ajan dongusu
+  (tool_calls → arac → role:tool), baglam sikistirma (compact), adim/sure siniri,
+  arac desteklemeyen sunucuda tek cagriya dusme. Alana ozel bilgi icermez.
+- **lib/stagingOku.js** — 5. islem icin STAGING'e SALT-OKUMA erisimi
+  (`liquibase-spring/.env` > `STAGING_DB_*`; PROD anahtarlari okunmaz).
 - **lib/permissions.js** — grup bazli yetkilendirme. `.env`'deki
   `WEBEX_ROOM_ID_<GRUP>` / `WEBEX_ROOM_ID_<GRUP>_YETKILER` degiskenlerinden
   roomId → izinli komut seti haritasi cikarir (`loadRoomPermissions`,
@@ -184,6 +189,39 @@ Akis:
 6. Menude ve islem baslarken "yerel yapay zeka, veriler OpenAI/Anthropic/Google
    gibi sirketlere gitmez" uyarisi (`YEREL_AI_UYARISI`) basilir.
 7. Ayni anda tek inceleme (`mesgulMu()`).
+8. **Ajan + araclar (2026-10-14):** inceleme `lib/llmAjan.js` dongusuyle yapilir.
+   Model su salt-okuma araclarini cagirabilir (`kodReview.araclariOlustur`, hepsi
+   `origin/<branch>` uzerinden, calisma kopyasina dokunmaz): `dosya_listele`
+   (git ls-tree), `dosya_oku` (git show ref:yol, satir araligi, 40k karakter),
+   `kod_ara` (git grep -F, ilk 200), `commit_diff` (yalnizca incelenen sha'lar,
+   50k karakterlik sayfalar), `staging_sorgu` (asagida). Arac sonucu 60k
+   karakterde kesilir. Sinirlar: `KOD_REVIEW_MAX_ADIM`=40, `KOD_REVIEW_TOPLAM_SURE_MS`
+   =60 dk; dolunca `tool_choice: none` + "nihai cevabi yaz". Sunucu ilk istekte
+   `tools`'u 400/404/422/500/501 ile reddederse araçsiz tek cagriya dusulur;
+   `KOD_REVIEW_ARACLAR=kapali` ayni etkiyi zorlar.
+9. **Compact:** baglam tahmini (son cevabin `usage` tokenlari + sonradan eklenen
+   mesajlarin karakter/3'u) `LLM_CONTEXT_WINDOW`(262144) x 0.75'i gecince ve gecmiste
+   arac sonucu varsa: model gecmisi ozetler (`tool_choice: none`), gecmis
+   `sistem, gorev, assistant[ozet], user[devam et]` olur. Yeni arac sonucu gelmeden
+   tekrar tetiklenmez (dev ilk mesajda sonsuz dongu olmasin).
+10. **Buyuk diff modu:** diff/3 > pencere x 0.5 ise diff mesaja konmaz; commit
+   basliklari + `--stat` ozetleri verilir, model patch'leri `commit_diff` ile okur.
+   Sinirsiz `KOD_REVIEW_MAX_DIFF_CHARS` boylece calisir.
+11. **STAGING salt-okuma (`lib/stagingOku.js`):** katmanlar: `validateSelectQuery`
+   (dbQuery.js) + yasakli fonksiyonlar (dblink, set_config, nextval, pg_sleep,
+   pg_terminate_backend, lo_*, pg_read_file, FOR UPDATE/SHARE...) + baglanti
+   `default_transaction_read_only=on` + `BEGIN TRANSACTION READ ONLY` + her durumda
+   ROLLBACK + statement_timeout 30s / lock_timeout 5s + dis sorguda `LIMIT 51`
+   (50 satir gosterilir, hucre 500 karakter, rowMode array — ayni adli kolonlar
+   ezilmez). Gercek Postgres 16 ile dogrulandi: icinde INSERT yapan bir SQL
+   fonksiyonu metin kontrolunu gecse de Postgres "cannot execute INSERT in a
+   read-only transaction" ile reddetti, veri degismedi. En saglam ek katman:
+   staging kullanicisinin DB'de yalnizca SELECT yetkisi olmasi (onerildi).
+   `KOD_REVIEW_STAGING=kapali` ya da .env/anahtar yoksa arac modele sunulmaz.
+   Sistem mesaji kisisel verileri cevaba kopyalamamasini soyler.
+12. Rapor dosyasinda "Arac kullanimi" bolumu: adim, sikistirma, okunan dosyalar
+   ve calistirilan TUM staging sorgulari (reddedilenler dahil). Webex ozetinde tek
+   satir: `🔧 N adim · X dosya okuma · Y arama · Z staging sorgusu · K sikistirma`.
 
 Model: kullanicinin DeepSeek harness'ta da kullandigi "Strata" (OpenAI
 completions uyumlu, 262k baglam, 49152 max token). Adres ve anahtar yalnizca
@@ -369,6 +407,14 @@ hicbir odayi dinlemez (baslangicta uyari loglanir).
 - Bu dosyayi (memory.md) guncelle.
 
 ## Yapilanlar / Durum
+- [2026-10-14] **5. islem ajan oldu: araclar + compact + STAGING salt-okuma.**
+  Yeni `lib/llmAjan.js`, `lib/stagingOku.js`; `kodReview.js` araclari, sistem
+  mesaji arac kurallari, buyuk diff modu, rapor arac bolumu. Dogrulama: gercek
+  Postgres 16 ile salt-okuma (SELECT ok; INSERT/UPDATE/CTE DELETE/nextval/
+  set_config/dblink/FOR UPDATE ve yazan fonksiyon reddedildi, veri degismedi);
+  arac cagiran sahte OpenAI sunucusuyla uctan uca (normal, compact, araçsiz
+  sunucu, buyuk diff, adim siniri, staging kapali) ve Webex akisi.
+  test-offline.js'e 35 test. **Gercek model ve gercek staging ile denenmedi.**
 - [2026-10-13] 5. islem: `KOD_REVIEW_MAX_COMMIT=2147483647` iken Windows'ta git
   `'2147483648': not an integer` veriyordu. Sinirlar `sinirOku` ile okunuyor;
   0/"sinirsiz"/cok buyuk = sinirsiz, o durumda `-n` gonderilmiyor.
