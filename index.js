@@ -46,12 +46,28 @@ const ROOM_PERMS = loadRoomPermissions(process.env);
 // bir makinedeki kopya cevaplar. Kopyalar arasi cakisma kontrol edilmez.
 const LISTENED = loadListenedOps(process.env);
 
+// Calisan kodun surumu (git commit). Birden fazla makinede farkli surum calisirsa
+// (biri guncellenmemisse) loglardan anlasilsin diye acilista yazdirilir.
+function kodSurumu() {
+  try {
+    return require('child_process')
+      .execFileSync('git', ['-C', __dirname, 'log', '-1', '--format=%h (%cd)', '--date=short'], {
+        stdio: ['ignore', 'pipe', 'ignore'],
+        windowsHide: true,
+      })
+      .toString()
+      .trim();
+  } catch (_) {
+    return 'bilinmiyor';
+  }
+}
+
 const framework = new Framework(config);
 
 framework.start();
 
 framework.on('initialized', () => {
-  console.log('OSEM bot baslatildi ve dinlemede.');
+  console.log(`OSEM bot baslatildi ve dinlemede. Kod surumu: ${kodSurumu()}`);
   if (ROOM_PERMS.size === 0) {
     console.log('UYARI: env\'de WEBEX_ROOM_ID_<GRUP> tanimi yok — bot hicbir odayi dinlemeyecek.');
   }
@@ -647,6 +663,12 @@ framework.hears(/.*/, async (bot, trigger) => {
   }
 
   if (!OPERATIONS.some((op) => op.cmd === command)) {
+    // Bot birden fazla makinede calisiyorsa bu kopyanin tanimadigi sayisal komut,
+    // diger makinedeki (ör. daha yeni surumdeki) kopyaya ait olabilir: sessiz kal.
+    if (!LISTENED.all && /^\d+$/.test(command)) {
+      console.log(`Bilinmeyen islem ${command} yoksayildi (DINLENEN_ISLEMLER dolu; baska kopyaya ait olabilir).`);
+      return;
+    }
     const menu = buildMenu(perm);
     if (menu) await bot.say(`Anlasilmayan komut: \`${command}\`\n\n${menu}`);
     return;

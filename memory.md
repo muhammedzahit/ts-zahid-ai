@@ -344,6 +344,13 @@ DINLENEN_ISLEMLER=4,6       # 2. bilgisayar
   iki ayri mesaj gelir (her biri kendi parcasini gosterir) — beklenen durum.
 - Kopyalar arasi cakisma KONTROL EDILMEZ; ayni islem iki makinede dinlenirse
   iki kez calisir. Dagilim `.env`'lerde dogru yapilmali.
+- `DINLENEN_ISLEMLER` doluyken bu kopyanin TANIMADIGI sayisal komut (ör. diger
+  makinede yeni eklenmis bir islem) da sessizce yoksayilir; yalnizca sayisal
+  olmayan anlamsiz komutlara "Anlasilmayan komut" denir.
+- Acilis logunda `Kod surumu: <commit> (<tarih>)` yazar. Iki makinede farkli
+  surum calisiyorsa (biri `git pull` + `pm2 restart` yapilmamissa) buradan gorulur.
+  Ornek (2026-10-14): 5'i dinlemeyen makine eski koddaydi, `5`'e "Anlasilmayan
+  komut" + menu donuyordu; guncel kod o durumda sessiz kalir.
 - DIKKAT: 4. islemin notlari `data/mergeNotes.json`'da (makineye yerel) tutulur
   ve 3. islemde gosterilir. 3 ve 4 farkli makinelerdeyse notlar gorunmez —
   ya ayni makinede tutun ya da iki makinede `MERGE_NOTES_FILE`'i ortak bir
@@ -407,6 +414,8 @@ hicbir odayi dinlemez (baslangicta uyari loglanir).
 - Bu dosyayi (memory.md) guncelle.
 
 ## Yapilanlar / Durum
+- [2026-10-14] Coklu makinede tanimadigi sayisal komuta sessiz kalma + acilista
+  kod surumu logu (eski surumde kalan makine `5`'e "Anlasilmayan komut" diyordu).
 - [2026-10-14] **5. islem ajan oldu: araclar + compact + STAGING salt-okuma.**
   Yeni `lib/llmAjan.js`, `lib/stagingOku.js`; `kodReview.js` araclari, sistem
   mesaji arac kurallari, buyuk diff modu, rapor arac bolumu. Dogrulama: gercek
