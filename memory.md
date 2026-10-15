@@ -43,6 +43,9 @@ sorgusu) Webex uzerinden guvenli sekilde yapabilmek.
   arac desteklemeyen sunucuda tek cagriya dusme. Alana ozel bilgi icermez.
 - **lib/stagingOku.js** — 5. islem icin STAGING'e SALT-OKUMA erisimi
   (`liquibase-spring/.env` > `STAGING_DB_*`; PROD anahtarlari okunmaz).
+- **lib/kodReviewKuyruk.js** — 5. islem kuyrugu: talep basina bir dosya (`wx` ile
+  atomik), `.sahiplik/<mesajId>` ile iki makineden tek cevap, `.isleniyor` isareti,
+  24 saat ayiklama, onaylayici eslesmesi, alt komut ayristirma.
 - **lib/permissions.js** — grup bazli yetkilendirme. `.env`'deki
   `WEBEX_ROOM_ID_<GRUP>` / `WEBEX_ROOM_ID_<GRUP>_YETKILER` degiskenlerinden
   roomId → izinli komut seti haritasi cikarir (`loadRoomPermissions`,
@@ -219,6 +222,27 @@ Akis:
    staging kullanicisinin DB'de yalnizca SELECT yetkisi olmasi (onerildi).
    `KOD_REVIEW_STAGING=kapali` ya da .env/anahtar yoksa arac modele sunulmaz.
    Sistem mesaji kisisel verileri cevaba kopyalamamasini soyler.
+0. **Kuyruk + onay (2026-10-15):** `5 APTY-123` artik HEMEN CALISMAZ, kuyruga
+   girer (yerel yapay zeka her zaman acik degil). Komutlar: `5 <branch>` ekle (ayni
+   branch bekliyorsa "zaten kuyrukta"), `5 liste`/`5 kuyruk`, `5 iptal <#id|branch>`
+   (talebi acan ya da onaylayici), `5 onay`. Talep `KOD_REVIEW_KUYRUK_SURE_SAAT`=24
+   saat bekler; dolanlar liste/onay sirasinda cikarilip bildirilir.
+   - Kuyruk = klasor (`KOD_REVIEW_KUYRUK_KLASORU`, varsayilan `data/kodReviewKuyruk`),
+     talep basina `<ms>_<id>.json`. Iki makinede IKISINE DE ayni ortak yol yazilir.
+   - Ayni mesaji iki makine de alir; `.sahiplik/<webexMesajId>`'yi `wx` ile ilk
+     olusturan cevaplar (48 saatten eski sahiplikler silinir).
+   - `5 onay`'i YALNIZCA `LLM_BASE_URL` tanimli kopya sahiplenir (ayri rol ayari yok).
+     Yapay zekasiz kopya `KOD_REVIEW_ONAY_UYARI_MS`(30 sn) bekler; kimse
+     sahiplenmediyse tek uyari yazar ("yerel yapay zekaya erisen bot calismiyor").
+   - Yetki: `KOD_REVIEW_ONAYLAYANLAR` (e-posta ya da ad, `normalizeName`); bos = kimse.
+   - Onay akisi: sure dolanlari ayikla → anlik liste → `GET <LLM_BASE_URL>/models`
+     on kontrol (ag hatasi = kapali, hicbir talep silinmez) → sirayla
+     `kodReviewTalebiIsle` (sonuc talebin ODASINA `framework.getBotByRoomId`, isteyen
+     etiketlenir). Talep islenirken `.isleniyor`; ag/baglanti hatasinda
+     (`llmAjan.baglantiHatasiMi`: ECONNREFUSED/RESET/timeout/502-504...) geri alinip
+     DURULUR, kalanlar kuyrukta; diger hatalar talebin odasina yazilip talep silinir.
+     Sonda onay odasina ozet. Yapay zekali kopya acilista `kurtar()` ile yarim
+     kalan `.isleniyor`'lari geri alir.
 12. Rapor dosyasinda "Arac kullanimi" bolumu: adim, sikistirma, okunan dosyalar
    ve calistirilan TUM staging sorgulari (reddedilenler dahil). Webex ozetinde tek
    satir: `🔧 N adim · X dosya okuma · Y arama · Z staging sorgusu · K sikistirma`.
@@ -414,6 +438,13 @@ hicbir odayi dinlemez (baslangicta uyari loglanir).
 - Bu dosyayi (memory.md) guncelle.
 
 ## Yapilanlar / Durum
+- [2026-10-15] **5. islem kuyruk + onay.** `lib/kodReviewKuyruk.js`; index.js'te
+  alt komutlar, `handleKodReviewOnay`, `kodReviewTalebiIsle`; llmAjan'a
+  `erisimKontrol`/`baglantiHatasiMi`. Dogrulama: iki ayri node sureci + ortak klasor
+  (tek cevap, tek dosya, yetkisiz ⛔, onayi yalniz LLM'li kopya isler, sonuc talebin
+  odasina), isleyici kapaliyken tek uyari, model kapaliyken hic silinmeme, islem
+  ortasi kopma, 24 saat ayiklama, cokme kurtarma, iptal yetkisi. test-offline.js'e
+  27 test. Gercek Webex/SMB paylasimi ile denenmedi.
 - [2026-10-14] Coklu makinede tanimadigi sayisal komuta sessiz kalma + acilista
   kod surumu logu (eski surumde kalan makine `5`'e "Anlasilmayan komut" diyordu).
 - [2026-10-14] **5. islem ajan oldu: araclar + compact + STAGING salt-okuma.**
