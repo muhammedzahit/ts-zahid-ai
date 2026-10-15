@@ -381,6 +381,60 @@ for (const [desc, ok] of ajanCases) {
 }
 console.log(`\nStaging + ajan: ${ajanPass}/${ajanCases.length} gecti`);
 
+// --- 5. islem: kuyruk + onay (gecici klasor) -------------------------------
+const kq = require('./lib/kodReviewKuyruk');
+const kqDir = fsTest.mkdtempSync(pathTest.join(os.tmpdir(), 'kod-review-kuyruk-'));
+const kqT0 = 1_700_000_000_000;
+const kq1 = kq.ekle({ branch: 'APTY-1', aranan: 'APTY-1', roomId: 'r', kim: 'Ali', kimEmail: 'ali@x.com' }, kqDir, kqT0);
+const kq2 = kq.ekle({ branch: 'APTY-2', aranan: 'APTY-2', roomId: 'r', kim: 'Veli', kimEmail: 'veli@x.com' }, kqDir, kqT0 + 1000);
+const kqSahip1 = kq.sahiplen('mesaj-1', kqDir);
+const kqSahip2 = kq.sahiplen('mesaj-1', kqDir);
+const kqIsaret = kq.isleniyorIsaretle(kq1, kqDir);
+const kqBekleyenIslemde = kq.bekleyenler(kqDir).map((t) => t.branch).join(',');
+const kqGeri = kq.geriAl(kq1, kqDir);
+kq.isleniyorIsaretle(kq1, kqDir);
+const kqKurtarilan = kq.kurtar(kqDir);
+const kqDolan = kq.sureDolanlariAyikla(kqDir, 24 * 3600 * 1000, kqT0 + 24 * 3600 * 1000 + 500);
+const kqKalan = kq.bekleyenler(kqDir).map((t) => t.branch).join(',');
+
+const kuyrukCases = [
+  ['iki talep sirali', kq.bekleyenler(kqDir).length >= 1 && kq1.dosya < kq2.dosya],
+  ['talep id 6 hex', /^[0-9a-f]{6}$/.test(kq1.id)],
+  ['ilk sahiplenme true', kqSahip1 === true],
+  ['ikinci sahiplenme false (diger makine sessiz)', kqSahip2 === false],
+  ['sahiplenildiMi', kq.sahiplenildiMi('mesaj-1', kqDir) && !kq.sahiplenildiMi('mesaj-2', kqDir)],
+  ['isleniyor bekleyenlerde gorunmez', kqIsaret && kqBekleyenIslemde === 'APTY-2'],
+  ['geri alinir', kqGeri === true],
+  ['kurtar isleniyoru geri alir', kqKurtarilan === 1],
+  ['24 saat dolan ayiklanir', kqDolan.length === 1 && kqDolan[0].branch === 'APTY-1' && kqKalan === 'APTY-2'],
+  ['id ile bulunur', kq.bul(`#${kq2.id}`, kqDir).branch === 'APTY-2'],
+  ['branch ile bulunur (harf duyarsiz)', kq.bul('apty-2', kqDir).id === kq2.id],
+  ['sil', kq.sil(kq2, kqDir) && kq.bekleyenler(kqDir).length === 0],
+  ['bos klasor → bos liste', kq.bekleyenler(pathTest.join(kqDir, 'yok')).length === 0],
+  ['onaylayici e-posta (harf duyarsiz)', kq.onaylayiciMi({ email: 'Zahid@X.com' }, { KOD_REVIEW_ONAYLAYANLAR: 'zahid@x.com, b@x.com' })],
+  ['onaylayici ad (Turkce, bosluk)', kq.onaylayiciMi({ ad: 'zahid  aydın' }, { KOD_REVIEW_ONAYLAYANLAR: 'Zahid Aydın' })],
+  ['onaylayici degil', !kq.onaylayiciMi({ email: 'ali@x.com', ad: 'Ali' }, { KOD_REVIEW_ONAYLAYANLAR: 'zahid@x.com' })],
+  ['liste bossa kimse onaylayamaz', !kq.onaylayiciMi({ email: 'a@x.com', ad: 'A' }, {})],
+  ['bos e-posta ad eslesmesine dusmez', !kq.onaylayiciMi({ email: '', ad: '' }, { KOD_REVIEW_ONAYLAYANLAR: 'zahid@x.com' })],
+  ['alt komut onay', kq.altKomutCoz('Onay').tur === 'onay' && kq.altKomutCoz('onayla').tur === 'onay'],
+  ['alt komut liste', kq.altKomutCoz('liste').tur === 'liste' && kq.altKomutCoz('kuyruk').tur === 'liste'],
+  ['alt komut iptal', (() => { const a = kq.altKomutCoz('iptal #ab12cd'); return a.tur === 'iptal' && a.hedef === '#ab12cd'; })()],
+  ['alt komut ekle', (() => { const a = kq.altKomutCoz('APTY-5'); return a.tur === 'ekle' && a.girdi === 'APTY-5'; })()],
+  ['alt komut bos', kq.altKomutCoz('  ').tur === 'bos'],
+  ['varsayilan bekleme 24 sa', kq.bekleme({}) === 24 * 3600 * 1000 && kq.bekleme({ KOD_REVIEW_KUYRUK_SURE_SAAT: '48' }) === 48 * 3600 * 1000],
+  ['sure yazimi', kq.sureYaz(7_380_000) === '2 sa 3 dk' && kq.sureYaz(300_000) === '5 dk' && kq.sureYaz(7_200_000) === '2 sa'],
+  ['baglanti hatasi tanima', ajan.baglantiHatasiMi({ code: 'ECONNREFUSED' }) && ajan.baglantiHatasiMi({ message: 'socket hang up' }) && ajan.baglantiHatasiMi({ response: { status: 503 } }) && !ajan.baglantiHatasiMi({ response: { status: 400 }, message: 'x' })],
+  ['llm tanimli mi', kr.llmTanimliMi({ LLM_BASE_URL: 'http://x/v1' }) && !kr.llmTanimliMi({})],
+];
+fsTest.rmSync(kqDir, { recursive: true, force: true });
+
+let kuyrukPass = 0;
+for (const [desc, ok] of kuyrukCases) {
+  console.log(`${ok ? 'PASS' : 'FAIL'} | ${desc}`);
+  if (ok) kuyrukPass++;
+}
+console.log(`\nKod incelemesi kuyrugu: ${kuyrukPass}/${kuyrukCases.length} gecti`);
+
 // Ajan dongusu: yerel sahte sunucu (ag disina cikmaz). Arac cagrisi → sonuc →
 // compact → nihai cevap; compact sonrasi gecmisin sistem+gorev+ozet+devam oldugu.
 (() => {
