@@ -53,7 +53,17 @@ for (const [input, botName, expCmd, expRest] of parseCases) {
   console.log(`${ok ? 'PASS' : 'FAIL'} | cmd="${command}" rest="${rest}" | girdi: ${JSON.stringify(input)}`);
   if (ok) parsePass++;
 }
-console.log(`\nParse: ${parsePass}/${parseCases.length} gecti`);
+const tumuCases = [
+  ['tumu: ayni satir', parseInput('5-2 a.md b.docx').tumu === 'a.md b.docx'],
+  ['tumu: ayni satir + alt satir birlikte', parseInput('5-2 a.md\nb.docx').tumu === 'a.md\nb.docx' && parseInput('5-2 a.md\nb.docx').rest === 'b.docx'],
+  ['tumu: yalnizca alt satir', parseInput('5\nAPTY-1').tumu === 'APTY-1'],
+  ['tumu: parametre yok', parseInput('3').tumu === ''],
+];
+for (const [desc, ok] of tumuCases) {
+  console.log(`${ok ? 'PASS' : 'FAIL'} | ${desc}`);
+  if (ok) parsePass++;
+}
+console.log(`\nParse: ${parsePass}/${parseCases.length + tumuCases.length} gecti`);
 
 // 3. islem kontrol araligi testleri
 const bos = parseMergeInterval('');
@@ -421,6 +431,7 @@ const kuyrukCases = [
   ['alt komut iptal', (() => { const a = kq.altKomutCoz('iptal #ab12cd'); return a.tur === 'iptal' && a.hedef === '#ab12cd'; })()],
   ['alt komut ekle', (() => { const a = kq.altKomutCoz('APTY-5'); return a.tur === 'ekle' && a.girdi === 'APTY-5'; })()],
   ['alt komut bos', kq.altKomutCoz('  ').tur === 'bos'],
+  ['alt komut itiraz', (() => { const a = kq.altKomutCoz('itiraz r.md\nreddiye.docx'); return a.tur === 'itiraz' && a.girdi === 'r.md\nreddiye.docx' && kq.altKomutCoz('Reddiye a b').tur === 'itiraz'; })()],
   ['varsayilan bekleme 24 sa', kq.bekleme({}) === 24 * 3600 * 1000 && kq.bekleme({ KOD_REVIEW_KUYRUK_SURE_SAAT: '48' }) === 48 * 3600 * 1000],
   ['sure yazimi', kq.sureYaz(7_380_000) === '2 sa 3 dk' && kq.sureYaz(300_000) === '5 dk' && kq.sureYaz(7_200_000) === '2 sa'],
   ['baglanti hatasi tanima', ajan.baglantiHatasiMi({ code: 'ECONNREFUSED' }) && ajan.baglantiHatasiMi({ message: 'socket hang up' }) && ajan.baglantiHatasiMi({ response: { status: 503 } }) && !ajan.baglantiHatasiMi({ response: { status: 400 }, message: 'x' })],
@@ -434,6 +445,99 @@ for (const [desc, ok] of kuyrukCases) {
   if (ok) kuyrukPass++;
 }
 console.log(`\nKod incelemesi kuyrugu: ${kuyrukPass}/${kuyrukCases.length} gecti`);
+
+// --- 5-2: incelemeye itiraz (reddiye) — gecici ortak alan, git/LLM cagrisi yok ---
+const it = require('./lib/kodReviewItiraz');
+(async () => {
+  const JSZip = require('jszip');
+  const ortak = fsTest.mkdtempSync(pathTest.join(os.tmpdir(), 'itiraz-ortak-'));
+  const disari = pathTest.join(os.tmpdir(), `itiraz-disari-${process.pid}.md`);
+  const commit = { sha: 'abc1234def', kisa: 'abc1234', tarih: '2026-11-01', yazar: 'Ali', mesaj: 'APTY-9 update' };
+  const rapor = kr.raporOlustur({ branch: 'feature/APTY-9', ref: 'origin/feature/APTY-9', commitler: [commit], govde: '**Ozet**\nx\n\n**Bulgular**\n🔴 `abc` sorunu', puan: 42, model: 'strata', sureSn: 3 });
+  const belgeXml =
+    '<w:document><w:body>' +
+    '<w:p><w:pPr><w:pStyle w:val="Balk1"/></w:pPr><w:r><w:t>Reddiye</w:t></w:r></w:p>' +
+    '<w:p><w:r><w:t xml:space="preserve">1. bulgu yanlis: </w:t></w:r><w:r><w:t>a &lt; b &amp;&amp; c kontrolu var</w:t></w:r></w:p>' +
+    '<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/></w:numPr></w:pPr><w:r><w:t>madde</w:t><w:tab/><w:t>iki</w:t><w:br/><w:t>alt satir</w:t></w:r></w:p>' +
+    '<w:p><w:del><w:r><w:delText>silinmis</w:delText></w:r></w:del><w:r><w:t>kalan şğı</w:t></w:r></w:p>' +
+    '</w:body></w:document>';
+  const zip = new JSZip();
+  zip.file('word/document.xml', belgeXml);
+  zip.file('word/media/image1.png', 'x');
+  fsTest.writeFileSync(pathTest.join(ortak, 'kod_review_APTY-9.md'), rapor);
+  fsTest.writeFileSync(pathTest.join(ortak, 'reddiye.docx'), await zip.generateAsync({ type: 'nodebuffer' }));
+  fsTest.writeFileSync(pathTest.join(ortak, 'reddiye son.txt'), '\uFEFFKatilmiyorum.\r\n');
+  fsTest.writeFileSync(pathTest.join(ortak, 'bos.md'), '  ');
+  fsTest.writeFileSync(pathTest.join(ortak, 'bozuk.docx'), 'zip degil');
+  fsTest.mkdirSync(pathTest.join(ortak, 'alt'));
+  fsTest.writeFileSync(pathTest.join(ortak, 'alt', 'not.md'), 'alt klasor');
+  fsTest.writeFileSync(disari, 'gizli');
+
+  const hz = await it.hazirla({ review: 'kod_review_APTY-9.md', reddiye: 'reddiye.docx' }, ortak);
+  const hzTers = await it.hazirla({ review: 'reddiye.docx', reddiye: 'kod_review_APTY-9.md' }, ortak);
+  const hzRaporDegil = await it.hazirla({ review: 'reddiye son.txt', reddiye: 'reddiye.docx' }, ortak);
+  const hzBos = await it.hazirla({ review: 'kod_review_APTY-9.md', reddiye: 'bos.md' }, ortak);
+  const hzBozuk = await it.hazirla({ review: 'kod_review_APTY-9.md', reddiye: 'bozuk.docx' }, ortak);
+  const hzAyni = await it.hazirla({ review: 'kod_review_APTY-9.md', reddiye: 'kod_review_APTY-9.md' }, ortak);
+  const docx = await it.dosyaOku(pathTest.join(ortak, 'reddiye.docx'));
+  const itirazGovde = '**Ozet**\nIki itiraz.\n\n**Itirazlarin Degerlendirmesi**\n✅ 1. 🔴 SQL bulgusu: hakli\n❌ 2. bulgu gecerli\n⚖️ 3. kismen\n\n**Guncel Bulgular**\n🟠 **Dosya.java** eksik kontrol\n🟡 isimlendirme\n\n**Genel Degerlendirme**\n🔴 kalmadi';
+  const itRapor = it.raporOlustur({ branch: 'feature/APTY-9', ref: 'origin/feature/APTY-9', commitler: [commit, { ...commit, kisa: 'fff0000', yeni: true }], govde: itirazGovde, puan: 80, model: 'strata', sureSn: 9, oncekiPuan: 42, reviewDosya: 'kod_review_APTY-9.md', reddiyeDosya: 'reddiye.docx', gorsel: 1, metinKirpildi: false, yeniCommitler: [{ kisa: 'fff0000' }] });
+  const itBilgi = it.raporBilgisi(itRapor);
+  const linkYolu = pathTest.join(ortak, 'link.md');
+  let linkVar = true;
+  try { fsTest.symlinkSync(disari, linkYolu); } catch (_) { linkVar = false; }
+
+  const itirazCases = [
+    ['arg: ayni satirda iki dosya', (() => { const a = it.argumanCoz('ortak-alan/review.md ortak-alan/reddiye.docx'); return a.review === 'ortak-alan/review.md' && a.reddiye === 'ortak-alan/reddiye.docx'; })()],
+    ['arg: alt alta (boslukli ad)', (() => { const a = it.argumanCoz('kod review.md\nreddiye son.docx'); return a.review === 'kod review.md' && a.reddiye === 'reddiye son.docx'; })()],
+    ['arg: tirnakli boslukli yol', (() => { const a = it.argumanCoz('"Ortak Alan/r.md" reddiye.docx'); return a.review === 'Ortak Alan/r.md' && a.reddiye === 'reddiye.docx'; })()],
+    ['arg: tirnaksiz boslukli yol uzantidan ayrilir', (() => { const a = it.argumanCoz('Ortak Alan\\r.md reddiye son.DOCX'); return a.review === 'Ortak Alan\\r.md' && a.reddiye === 'reddiye son.DOCX'; })()],
+    ['arg: bos', it.argumanCoz('  ').hata === 'bos'],
+    ['arg: tek dosya → hata', !!it.argumanCoz('review.md').hata],
+    ['dosya: ad ile bulunur', it.dosyaCoz('reddiye.docx', ortak).goreli === 'reddiye.docx'],
+    ['dosya: olmayan on ek → ortak alan kokunde aranir', it.dosyaCoz('ortak-alan/reddiye.docx', ortak).goreli === 'reddiye.docx'],
+    ['dosya: Webex\'in yuttugu _ isaretleri tolere edilir', it.dosyaCoz('kodreviewAPTY-9.md', ortak).goreli === 'kod_review_APTY-9.md'],
+    ['dosya: tam yol (ortak alan icinde)', it.dosyaCoz(pathTest.join(ortak, 'alt', 'not.md'), ortak).goreli === pathTest.join('alt', 'not.md')],
+    ['dosya: ../ ile disari cikilamaz', !!it.dosyaCoz(`../${pathTest.basename(disari)}`, ortak).hata],
+    ['dosya: ortak alan disindaki tam yol reddedilir', !!it.dosyaCoz(disari, ortak).hata],
+    ['dosya: disari isaret eden link reddedilir', !linkVar || !!it.dosyaCoz('link.md', ortak).hata],
+    ['dosya: desteklenmeyen uzanti', (it.dosyaCoz('rapor.pdf', ortak).hata || '').includes('Desteklenmeyen')],
+    ['dosya: bulunamadi', (it.dosyaCoz('yok.md', ortak).hata || '').includes('bulunamadi')],
+    ['dosya: SHARED_FOLDER yoksa hata', (it.dosyaCoz('reddiye.docx', '').hata || '').includes('SHARED_FOLDER')],
+    ['docx: baslik + paragraf + entity', docx.metin.startsWith('## Reddiye\n1. bulgu yanlis: a < b && c kontrolu var')],
+    ['docx: liste maddesi, tab ve satir sonu', docx.metin.includes('- madde\tiki\nalt satir')],
+    ['docx: silinmis metin atilir, Turkce korunur', docx.metin.includes('kalan şğı') && !docx.metin.includes('silinmis')],
+    ['docx: gorsel sayisi', docx.gorsel === 1],
+    ['txt: BOM ve CRLF temizlenir', (await it.dosyaOku(pathTest.join(ortak, 'reddiye son.txt'))).metin === 'Katilmiyorum.'],
+    ['rapor bilgisi: branch + puan + commit', (() => { const b = it.raporBilgisi(rapor); return b.branch === 'feature/APTY-9' && b.puan === 42 && b.shalar.join() === 'abc1234'; })()],
+    ['rapor bilgisi: bulgudaki `abc` commit sayilmaz', it.raporBilgisi(rapor).shalar.length === 1],
+    ['rapor bilgisi: rapor degilse branch yok', it.raporBilgisi('duz metin').branch === null],
+    ['hazirla: branch ve aranan rapordan', hz.branch === 'feature/APTY-9' && hz.aranan === 'APTY-9' && hz.oncekiPuan === 42 && hz.reddiye.gorsel === 1 && !hz.yerDegisti],
+    ['hazirla: ters sirada verilen dosyalar duzeltilir', hzTers.yerDegisti === true && hzTers.review.goreli === 'kod_review_APTY-9.md' && hzTers.reddiye.goreli === 'reddiye.docx'],
+    ['hazirla: ilk dosya rapor degilse hata', (hzRaporDegil.hata || '').includes('inceleme raporuna benzemiyor')],
+    ['hazirla: bos reddiye', (hzBos.hata || '').includes('bos')],
+    ['hazirla: bozuk docx', (hzBozuk.hata || '').includes('gecerli bir .docx')],
+    ['hazirla: ayni dosya iki kez', (hzAyni.hata || '').includes('ayni dosya')],
+    ['itiraz raporu sonraki turda okunabilir', itBilgi.branch === 'feature/APTY-9' && itBilgi.puan === 80 && itBilgi.shalar.join() === 'abc1234,fff0000'],
+    ['itiraz raporunda onceki puan + dosyalar + notlar', itRapor.includes('**Onceki puan:** 42/100') && itRapor.includes('`reddiye.docx`') && itRapor.includes('1 yeni commit') && itRapor.includes('1 gorsel') && itRapor.includes('## Itiraz degerlendirmesi')],
+    ['kararlar sayilir', (() => { const k = it.kararSay(itirazGovde); return k.kabul === 1 && k.kismen === 1 && k.ret === 1; })()],
+    ['bulgular yalnizca Guncel Bulgular bolumunden sayilir', (() => { const b = kr.bulguSay(it.guncelBulgular(itirazGovde)); return b.kritik === 0 && b.onemli === 1 && b.kucuk === 1; })()],
+    ['guncel bulgular bolumu yoksa tum govde', it.guncelBulgular('🔴 a') === '🔴 a'],
+    ['on ek: inceleme + reddiye + yeni commit notu', (() => { const e = it.onEk({ review: 'INC', reddiye: 'RED', yeniCommitler: [{ kisa: 'fff0000' }] }); return e.includes('INC') && e.includes('RED') && e.includes('1 yeni commit') && e.indexOf('INC') < e.indexOf('RED'); })()],
+    ['itiraz sistem mesaji: puan olcegi + arac kurallari', kr.sistemMesaji({ araclarVar: true, temel: it.SISTEM_ITIRAZ }).includes('PUAN: <0-100') && kr.sistemMesaji({ araclarVar: true, temel: it.SISTEM_ITIRAZ }).includes('dosya_oku') && it.SISTEM_ITIRAZ.includes('Guncel Bulgular')],
+    ['buyuk diff hesabina ek metin dahil', !kr.buyukDiffMi('x'.repeat(100), 100) && kr.buyukDiffMi('x'.repeat(100), 100, 100)],
+    ['rapor dosya adina tur eklenir', (() => { const eski = process.env.SHARED_FOLDER; process.env.SHARED_FOLDER = ortak; const d = kr.dosyayaYaz('feature/APTY-9', 'x', 'itiraz'); if (eski === undefined) delete process.env.SHARED_FOLDER; else process.env.SHARED_FOLDER = eski; return /kod_review_feature_APTY-9_itiraz_\d{4}-/.test(pathTest.basename(d || '')); })()],
+  ];
+  fsTest.rmSync(ortak, { recursive: true, force: true });
+  fsTest.rmSync(disari, { force: true });
+
+  let itirazPass = 0;
+  for (const [desc, ok] of itirazCases) {
+    console.log(`${ok ? 'PASS' : 'FAIL'} | ${desc}`);
+    if (ok) itirazPass++;
+  }
+  console.log(`\nItiraz (5-2): ${itirazPass}/${itirazCases.length} gecti`);
+})().catch((err) => console.log(`FAIL | itiraz testleri calismadi: ${err.stack}`));
 
 // Ajan dongusu: yerel sahte sunucu (ag disina cikmaz). Arac cagrisi → sonuc →
 // compact → nihai cevap; compact sonrasi gecmisin sistem+gorev+ozet+devam oldugu.
