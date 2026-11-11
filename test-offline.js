@@ -460,10 +460,24 @@ const it = require('./lib/kodReviewItiraz');
     '<w:p><w:r><w:t xml:space="preserve">1. bulgu yanlis: </w:t></w:r><w:r><w:t>a &lt; b &amp;&amp; c kontrolu var</w:t></w:r></w:p>' +
     '<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/></w:numPr></w:pPr><w:r><w:t>madde</w:t><w:tab/><w:t>iki</w:t><w:br/><w:t>alt satir</w:t></w:r></w:p>' +
     '<w:p><w:del><w:r><w:delText>silinmis</w:delText></w:r></w:del><w:r><w:t>kalan şğı</w:t></w:r></w:p>' +
+    '<w:p><w:r><w:t>Ekran goruntusu:</w:t></w:r><w:r><mc:AlternateContent><mc:Choice><w:drawing><a:blip r:embed="rId7" cstate="print"/></w:drawing></mc:Choice>' +
+    '<mc:Fallback><w:pict><v:imagedata r:id="rId7"/></w:pict></mc:Fallback></mc:AlternateContent></w:r></w:p>' +
+    '<w:p><w:r><w:pict><v:imagedata r:id="rId8" o:title=""/></w:pict></w:r></w:p>' +
+    '<w:p><w:r><w:drawing><a:blip r:embed="rId9"/></w:drawing></w:r><w:r><w:t>son</w:t></w:r><w:r><w:drawing><a:blip r:embed="rId7"/></w:drawing></w:r></w:p>' +
     '</w:body></w:document>';
+  const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(40, 1)]);
+  const jpg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(40, 2)]);
   const zip = new JSZip();
   zip.file('word/document.xml', belgeXml);
-  zip.file('word/media/image1.png', 'x');
+  zip.file('word/_rels/document.xml.rels',
+    '<Relationships><Relationship Id="rId7" Type="x/image" Target="media/image1.png"/>' +
+    '<Relationship Id="rId8" Type="x/image" Target="media/image2.emf"/>' +
+    '<Relationship Id="rId9" Type="x/image" Target="/word/media/foto.jpeg"/>' +
+    '<Relationship Id="rId1" Type="x/hyperlink" Target="http://x" TargetMode="External"/></Relationships>');
+  zip.file('word/media/image1.png', png);
+  zip.file('word/media/image2.emf', Buffer.alloc(64, 3));
+  zip.file('word/media/foto.jpeg', jpg);
+  zip.file('word/media/kullanilmayan.png', png);
   fsTest.writeFileSync(pathTest.join(ortak, 'kod_review_APTY-9.md'), rapor);
   fsTest.writeFileSync(pathTest.join(ortak, 'reddiye.docx'), await zip.generateAsync({ type: 'nodebuffer' }));
   fsTest.writeFileSync(pathTest.join(ortak, 'reddiye son.txt'), '\uFEFFKatilmiyorum.\r\n');
@@ -481,7 +495,13 @@ const it = require('./lib/kodReviewItiraz');
   const hzAyni = await it.hazirla({ review: 'kod_review_APTY-9.md', reddiye: 'kod_review_APTY-9.md' }, ortak);
   const docx = await it.dosyaOku(pathTest.join(ortak, 'reddiye.docx'));
   const itirazGovde = '**Ozet**\nIki itiraz.\n\n**Itirazlarin Degerlendirmesi**\n✅ 1. 🔴 SQL bulgusu: hakli\n❌ 2. bulgu gecerli\n⚖️ 3. kismen\n\n**Guncel Bulgular**\n🟠 **Dosya.java** eksik kontrol\n🟡 isimlendirme\n\n**Genel Degerlendirme**\n🔴 kalmadi';
-  const itRapor = it.raporOlustur({ branch: 'feature/APTY-9', ref: 'origin/feature/APTY-9', commitler: [commit, { ...commit, kisa: 'fff0000', yeni: true }], govde: itirazGovde, puan: 80, model: 'strata', sureSn: 9, oncekiPuan: 42, reviewDosya: 'kod_review_APTY-9.md', reddiyeDosya: 'reddiye.docx', gorsel: 1, metinKirpildi: false, yeniCommitler: [{ kisa: 'fff0000' }] });
+  const gorselOzet = [{ no: 1, verilemedi: false, neden: null }, { no: 2, verilemedi: true, neden: 'desteklenmeyen bicim (emf)' }, { no: 3, verilemedi: false, neden: null }];
+  const itRapor = it.raporOlustur({ branch: 'feature/APTY-9', ref: 'origin/feature/APTY-9', commitler: [commit, { ...commit, kisa: 'fff0000', yeni: true }], govde: itirazGovde, puan: 80, model: 'strata', sureSn: 9, oncekiPuan: 42, reviewDosya: 'kod_review_APTY-9.md', reddiyeDosya: 'reddiye.docx', gorseller: gorselOzet, gorselSayisi: 2, gorselReddedildi: false, metinKirpildi: false, yeniCommitler: [{ kisa: 'fff0000' }] });
+  const secili = it.gorselSec(docx.gorseller, {});
+  const parca = it.reddiyeParcalari(docx.metin, secili);
+  const ekGorselli = it.onEk({ review: 'INC', reddiye: docx.metin, gorseller: secili });
+  const ekMetin = it.onEk({ review: 'INC', reddiye: 'RED', yeniCommitler: [{ kisa: 'fff0000' }] });
+  const uncKok = '\\\\172.18.247.8\\fsortak1\\BT_ORTAK\\THE_BEST_OSEMCİLER\\temp';
   const itBilgi = it.raporBilgisi(itRapor);
   const linkYolu = pathTest.join(ortak, 'link.md');
   let linkVar = true;
@@ -507,23 +527,42 @@ const it = require('./lib/kodReviewItiraz');
     ['docx: baslik + paragraf + entity', docx.metin.startsWith('## Reddiye\n1. bulgu yanlis: a < b && c kontrolu var')],
     ['docx: liste maddesi, tab ve satir sonu', docx.metin.includes('- madde\tiki\nalt satir')],
     ['docx: silinmis metin atilir, Turkce korunur', docx.metin.includes('kalan şğı') && !docx.metin.includes('silinmis')],
-    ['docx: gorsel sayisi', docx.gorsel === 1],
+    ['docx: gomulu gorseller sirayla, tekrar eden ve VML kopyasi tek sayilir', docx.gorseller.map((g) => `${g.no}:${g.ad}:${g.mime}`).join() === '1:image1.png:image/png,2:image2.emf:null,3:foto.jpeg:image/jpeg'],
+    ['docx: gorselin yeri metinde isaretli', docx.metin.includes('Ekran goruntusu:\n[Gorsel 1]\n[Gorsel 2]\n[Gorsel 3]\nson\n[Gorsel 1]')],
+    ['docx: desteklenmeyen bicim verilmez, nedeni yazilir', docx.gorseller[1].veri === null && docx.gorseller[1].neden === 'desteklenmeyen bicim (emf)' && Buffer.isBuffer(docx.gorseller[0].veri)],
+    ['gorsel turu icerikten anlasilir', it.gorselTuru(png) === 'image/png' && it.gorselTuru(jpg) === 'image/jpeg' && it.gorselTuru(Buffer.from('GIF89a' + 'x'.repeat(10))) === 'image/gif' && it.gorselTuru(Buffer.from('RIFFxxxxWEBPVP8 ')) === 'image/webp' && it.gorselTuru(Buffer.alloc(20)) === null],
+    ['gorsel secimi: varsayilan hepsi', secili.filter((g) => g.veri).length === 2],
+    ['gorsel secimi: KOD_REVIEW_GORSEL=kapali', it.gorselSec(docx.gorseller, { KOD_REVIEW_GORSEL: 'kapali' }).every((g) => !g.veri && g.neden)],
+    ['gorsel secimi: adet siniri', (() => { const g = it.gorselSec(docx.gorseller, { KOD_REVIEW_MAX_GORSEL: '1' }); return g[0].veri && !g[2].veri && g[2].neden.includes('en fazla 1'); })()],
+    ['gorsel secimi: cok buyuk gorsel', it.gorselSec([{ no: 1, mime: 'image/png', veri: Buffer.alloc(6 * 1024 * 1024), neden: null }], {})[0].neden.includes('cok buyuk')],
+    ['parcalar: metin-gorsel-metin sirasi, ayni gorsel bir kez', parca.gonderilen === 2 && parca.parcalar.map((p) => p.type).join() === 'text,image_url,text,image_url,text' && parca.parcalar[0].text.endsWith('[Gorsel 1]') && parca.parcalar[1].image_url.url === `data:image/png;base64,${png.toString('base64')}`],
+    ['parcalar: verilemeyen gorselin isaretine neden yazilir', parca.parcalar[2].text.includes('[Gorsel 2 — modele verilemedi: desteklenmeyen bicim (emf)]') && parca.parcalar[2].text.endsWith('[Gorsel 3]')],
+    ['on ek: gorselliyse parca dizisi', Array.isArray(ekGorselli.icerik) && ekGorselli.gonderilen === 2 && ekGorselli.icerik[0].text.includes('INC') && ekGorselli.icerik[ekGorselli.icerik.length - 1].text.includes('REDDIYE (bitis)')],
+    ['gorsel notlari: gosterildi + verilemeyen', (() => { const n = it.gorselNotlari({ gorseller: gorselOzet, gorselSayisi: 2, gorselReddedildi: false }).join(' '); return n.includes('2 gorsel modele gosterildi') && n.includes('Gorsel 2 (desteklenmeyen bicim (emf))'); })()],
+    ['gorsel notlari: sunucu reddetti', it.gorselNotlari({ gorseller: gorselOzet, gorselSayisi: 0, gorselReddedildi: true })[0].includes('gorsel kabul etmedi')],
+    ['gorsel notlari: gorsel yoksa bos', it.gorselNotlari({ gorseller: [] }).length === 0],
+    ['goreli yol: yolda İ olsa da ilk harf kesilmez (Node 20 path.relative hatasi)', it.goreliYol(uncKok, `${uncKok}\\kod_review_APTY-131487.md`, true) === 'kod_review_APTY-131487.md' && it.goreliYol(uncKok, `${uncKok}\\alt\\APTY-1.docx`, true) === 'alt\\APTY-1.docx'],
+    ['goreli yol: harf duyarsiz kok (Windows)', it.goreliYol('C:\\Ortak', 'c:\\ortak\\a.md', true) === 'a.md' && it.goreliYol('C:\\Ortak', 'c:\\ortak\\a.md', false) === null],
+    ['goreli yol: disarisi, kokun kendisi, benzer on ek → null', it.goreliYol('/a/b', '/a/c/x.md') === null && it.goreliYol('/a/b', '/a/b') === null && it.goreliYol('/a/b', '/a/bc/x.md') === null && it.goreliYol('/a/b/', '/a/b/x.md') === 'x.md'],
+    ['icerik karakteri: metin + gorsel tahmini', ajan.icerikKarakter('abc') === 3 && ajan.icerikKarakter([{ type: 'text', text: 'abcd' }, { type: 'image_url', image_url: { url: 'x' } }]) === 4504 && ajan.mesajKarakter([{ role: 'user', content: [{ type: 'text', text: 'ab' }] }]) === 2],
+    ['gorselleri at: metin birlesir + not', ajan.gorselleriAt([{ type: 'text', text: 'a' }, { type: 'image_url' }, { type: 'text', text: 'b' }], 'N') === 'ab\n\nN' && ajan.gorselleriAt('duz', 'N') === 'duz'],
+    ['413/415 de istek reddi sayilir', ajan.istekReddedildiMi({ response: { status: 413 } }) && ajan.istekReddedildiMi({ response: { status: 415 } }) && !ajan.istekReddedildiMi({ response: { status: 503 } })],
     ['txt: BOM ve CRLF temizlenir', (await it.dosyaOku(pathTest.join(ortak, 'reddiye son.txt'))).metin === 'Katilmiyorum.'],
     ['rapor bilgisi: branch + puan + commit', (() => { const b = it.raporBilgisi(rapor); return b.branch === 'feature/APTY-9' && b.puan === 42 && b.shalar.join() === 'abc1234'; })()],
     ['rapor bilgisi: bulgudaki `abc` commit sayilmaz', it.raporBilgisi(rapor).shalar.length === 1],
     ['rapor bilgisi: rapor degilse branch yok', it.raporBilgisi('duz metin').branch === null],
-    ['hazirla: branch ve aranan rapordan', hz.branch === 'feature/APTY-9' && hz.aranan === 'APTY-9' && hz.oncekiPuan === 42 && hz.reddiye.gorsel === 1 && !hz.yerDegisti],
+    ['hazirla: branch ve aranan rapordan', hz.branch === 'feature/APTY-9' && hz.aranan === 'APTY-9' && hz.oncekiPuan === 42 && hz.reddiye.gorseller.length === 3 && !hz.yerDegisti],
     ['hazirla: ters sirada verilen dosyalar duzeltilir', hzTers.yerDegisti === true && hzTers.review.goreli === 'kod_review_APTY-9.md' && hzTers.reddiye.goreli === 'reddiye.docx'],
     ['hazirla: ilk dosya rapor degilse hata', (hzRaporDegil.hata || '').includes('inceleme raporuna benzemiyor')],
     ['hazirla: bos reddiye', (hzBos.hata || '').includes('bos')],
     ['hazirla: bozuk docx', (hzBozuk.hata || '').includes('gecerli bir .docx')],
     ['hazirla: ayni dosya iki kez', (hzAyni.hata || '').includes('ayni dosya')],
     ['itiraz raporu sonraki turda okunabilir', itBilgi.branch === 'feature/APTY-9' && itBilgi.puan === 80 && itBilgi.shalar.join() === 'abc1234,fff0000'],
-    ['itiraz raporunda onceki puan + dosyalar + notlar', itRapor.includes('**Onceki puan:** 42/100') && itRapor.includes('`reddiye.docx`') && itRapor.includes('1 yeni commit') && itRapor.includes('1 gorsel') && itRapor.includes('## Itiraz degerlendirmesi')],
+    ['itiraz raporunda onceki puan + dosyalar + notlar', itRapor.includes('**Onceki puan:** 42/100') && itRapor.includes('`reddiye.docx`') && itRapor.includes('1 yeni commit') && itRapor.includes('2 gorsel modele gosterildi') && itRapor.includes('## Itiraz degerlendirmesi')],
     ['kararlar sayilir', (() => { const k = it.kararSay(itirazGovde); return k.kabul === 1 && k.kismen === 1 && k.ret === 1; })()],
     ['bulgular yalnizca Guncel Bulgular bolumunden sayilir', (() => { const b = kr.bulguSay(it.guncelBulgular(itirazGovde)); return b.kritik === 0 && b.onemli === 1 && b.kucuk === 1; })()],
     ['guncel bulgular bolumu yoksa tum govde', it.guncelBulgular('🔴 a') === '🔴 a'],
-    ['on ek: inceleme + reddiye + yeni commit notu', (() => { const e = it.onEk({ review: 'INC', reddiye: 'RED', yeniCommitler: [{ kisa: 'fff0000' }] }); return e.includes('INC') && e.includes('RED') && e.includes('1 yeni commit') && e.indexOf('INC') < e.indexOf('RED'); })()],
+    ['on ek: inceleme + reddiye + yeni commit notu (gorselsizse duz metin)', (() => { const e = ekMetin.icerik; return typeof e === 'string' && ekMetin.gonderilen === 0 && e.includes('INC') && e.includes('RED') && e.includes('1 yeni commit') && e.indexOf('INC') < e.indexOf('RED'); })()],
     ['itiraz sistem mesaji: puan olcegi + arac kurallari', kr.sistemMesaji({ araclarVar: true, temel: it.SISTEM_ITIRAZ }).includes('PUAN: <0-100') && kr.sistemMesaji({ araclarVar: true, temel: it.SISTEM_ITIRAZ }).includes('dosya_oku') && it.SISTEM_ITIRAZ.includes('Guncel Bulgular')],
     ['buyuk diff hesabina ek metin dahil', !kr.buyukDiffMi('x'.repeat(100), 100) && kr.buyukDiffMi('x'.repeat(100), 100, 100)],
     ['rapor dosya adina tur eklenir', (() => { const eski = process.env.SHARED_FOLDER; process.env.SHARED_FOLDER = ortak; const d = kr.dosyayaYaz('feature/APTY-9', 'x', 'itiraz'); if (eski === undefined) delete process.env.SHARED_FOLDER; else process.env.SHARED_FOLDER = eski; return /kod_review_feature_APTY-9_itiraz_\d{4}-/.test(pathTest.basename(d || '')); })()],
@@ -575,6 +614,46 @@ const it = require('./lib/kodReviewItiraz');
       kontrol('ajan: tool_call/tool cifti eslesti', istekler[1].messages[2].tool_calls[0].id === istekler[1].messages[3].tool_call_id);
     } catch (err) {
       kontrol(`ajan dongusu (${err.message})`, false);
+    } finally {
+      sunucu.close();
+    }
+  });
+})();
+
+// Ajan dongusu: sunucu gorselli istegi reddederse (400) gorseller atilip araclarla devam edilir.
+(() => {
+  const http = require('http');
+  const istekler = [];
+  const gorselliMi = (j) => Array.isArray(j.messages[1].content) && j.messages[1].content.some((p) => p.type === 'image_url');
+  const sunucu = http.createServer((req, res) => {
+    let b = '';
+    req.on('data', (d) => { b += d; });
+    req.on('end', () => {
+      const j = JSON.parse(b);
+      istekler.push(j);
+      res.setHeader('content-type', 'application/json');
+      if (gorselliMi(j)) {
+        res.statusCode = 400;
+        res.end(JSON.stringify({ error: 'image input is not supported' }));
+        return;
+      }
+      res.end(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: 'PUAN: 70/100\nTamam' } }] }));
+    });
+  });
+  sunucu.listen(0, '127.0.0.1', async () => {
+    const ayar = { ...kr.llmAyarlari({}), baseURL: `http://127.0.0.1:${sunucu.address().port}/v1`, reasoning: '' };
+    const kontrol = (desc, ok) => console.log(`${ok ? 'PASS' : 'FAIL'} | ${desc}`);
+    const gorselliGorev = [{ type: 'text', text: 'Bak: [Gorsel 1]' }, { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } }, { type: 'text', text: ' bitti' }];
+    try {
+      const r = await ajan.ajanCalistir({
+        ayar, sistem: 'S', kullanici: gorselliGorev, gorselsizNot: 'GORSEL YOK',
+        araclar: [{ tanim: { type: 'function', function: { name: 'yankila', parameters: {} } }, calistir: async () => 'x' }],
+      });
+      kontrol('ajan: gorsel reddedilince metinle devam', r.metin === 'PUAN: 70/100\nTamam' && r.gorselReddedildi === true && r.gorselSayisi === 0);
+      kontrol('ajan: ilk istek gorselli, ikincisi gorselsiz + not', istekler.length === 2 && gorselliMi(istekler[0]) && istekler[1].messages[1].content === 'Bak: [Gorsel 1] bitti\n\nGORSEL YOK');
+      kontrol('ajan: gorsel reddinde araclar korunur', r.aracsiz === false && Array.isArray(istekler[1].tools));
+    } catch (err) {
+      kontrol(`ajan gorsel geri dususu (${err.message})`, false);
     } finally {
       sunucu.close();
     }
