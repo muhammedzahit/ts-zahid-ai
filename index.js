@@ -136,7 +136,8 @@ const OPERATIONS = [
       '`5 onay` → (yetkili) kuyrugu islet\n' +
       'Model inceleme sirasinda branch\'in kodunu ve STAGING veritabanini **yalnizca okuyarak** arastirabilir.\n' +
       '**5-2 — Incelemeye itiraz (reddiye):** incelemeye katilmadiginiz noktalari bir dosyaya ' +
-      '(`.docx` / `.md` / `.txt`) yazip ortak alana koyun; model itirazlari tek tek degerlendirip puani gunceller.\n' +
+      '(`.docx` / `.md` / `.txt`) yazip ortak alana koyun; model itirazlari tek tek degerlendirip puani gunceller. ' +
+      '`.docx` icindeki ekran goruntuleri de modele gosterilir.\n' +
       '`5-2 <inceleme raporu> <reddiye dosyasi>` → kuyruga ekle (ör. `5-2 kod_review_APTY-123_….md reddiye.docx`)\n' +
       kodReview.YEREL_AI_UYARISI,
   },
@@ -466,9 +467,17 @@ async function kodReviewItirazEkle(bot, trigger, girdi) {
       return;
     }
     talep = { ...talep, branch: h.branch, aranan: h.aranan, review: h.review.goreli, reddiye: h.reddiye.goreli };
+    const gorseller = h.reddiye.gorseller;
+    const verilemeyen = gorseller.filter((g) => !g.veri);
     notlar =
       (h.yerDegisti ? '\n_Dosyalar ters sirada yazilmisti; inceleme raporu ve reddiye yer degistirildi._' : '') +
-      (h.reddiye.gorsel ? `\n_Reddiye dosyasindaki ${h.reddiye.gorsel} gorsel modele verilmez; yalnizca metin okunur._` : '');
+      (gorseller.length > verilemeyen.length
+        ? `\n🖼️ _Reddiyedeki ${gorseller.length - verilemeyen.length} gorsel modele gosterilecek (model gorsel destekliyorsa)._`
+        : '') +
+      (verilemeyen.length
+        ? `\n_${verilemeyen.length} gorsel modele verilemeyecek: ` +
+          `${verilemeyen.slice(0, 5).map((g) => `Gorsel ${g.no} (${g.neden})`).join(', ')}${verilemeyen.length > 5 ? ', …' : ''}._`
+        : '');
   }
 
   kuyruk.sureDolanlariAyikla();
@@ -807,7 +816,7 @@ async function kodReviewItirazIsle(bot, talep, { sira, toplam }) {
     (sonuc.yeniCommitler.length ? ` (${sonuc.yeniCommitler.length} yeni)` : '') +
     ` · model \`${sonuc.model}\` (yerel) · ${sonuc.sureSn} sn\n` +
     kodReview.aracOzeti(sonuc) +
-    (sonuc.gorsel ? `\n_Reddiye dosyasindaki ${sonuc.gorsel} gorsel modele verilmedi (yalnizca metin okundu)._` : '') +
+    itiraz.gorselNotlari(sonuc).map((n) => `\n${sonuc.gorselReddedildi ? '⚠️' : '🖼️'} _${n}_`).join('') +
     (sonuc.metinKirpildi ? '\n_Inceleme / itiraz metni cok uzundu; bir kismi kesilerek verildi._' : '') +
     (sonuc.yarim ? '\n_Model token sinirina takildi; degerlendirme yarim kalmis olabilir._' : '');
 

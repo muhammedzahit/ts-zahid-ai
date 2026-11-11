@@ -262,7 +262,26 @@ Akis:
      italik sanip silebilir). `../`, disaridaki tam yol, link, >25 MB reddedilir.
    - `.docx`: `jszip` (exceljs'in de bagimliligi; package.json'a eklendi, gec yuklenir)
      ile `word/document.xml` → metin (`docxXmlMetin`: baslik `## `, liste `- `, silinmis
-     izlenen degisiklik atilir). Gorseller modele VERILMEZ, sayisi not dusulur.
+     izlenen degisiklik atilir).
+   - **Gorseller (2026-11-11):** gomulu gorseller (`a:blip r:embed` / `v:imagedata r:id`
+     → `word/_rels/document.xml.rels` → `word/media/*`) belgede gectigi sirayla
+     numaralanir, metinde yerlerine `[Gorsel N]` konur (`mc:Fallback` kopyasi ve tekrar
+     kullanilan ayni gorsel tek sayilir). Bicim icerikten anlasilir (`gorselTuru`:
+     png/jpeg/gif/webp; emf/wmf vb. verilemez). `gorselSec` sinirlari:
+     `KOD_REVIEW_GORSEL=kapali`, `KOD_REVIEW_MAX_GORSEL`=20, gorsel basina 5 MB, toplam
+     20 MB. Gorev mesaji OpenAI icerik parcalari olur (`text` + `image_url` data URI;
+     her isaretin hemen ardindan gorsel). Verilemeyenin isaretine nedeni yazilir.
+     `llmAjan.ajanCalistir` ILK istek 400/404/413/415/422/500/501 ile reddedilirse
+     sirayla dener: gorselli+aracli → gorselsiz+aracli → gorselli+aracsiz → gorselsiz+
+     aracsiz. Gorseller atilinca modele "gorselleri goremiyorsun, tahmin etme" notu
+     eklenir; Webex + raporda "model sunucusu gorsel kabul etmedi" yazar. Baglam
+     tahmininde gorsel basina ~1500 token (4500 karakter) sayilir. OCR YOK: model
+     cok kipli (vision) degilse gorseller degerlendirilemez.
+   - **`path.relative` KULLANMA (2026-11-11 hatasi):** Node 20.11'de (22.12+/24'te
+     duzelmis) `path.win32.relative`, yolda kucultulunce uzunlugu degisen harf (`İ`)
+     varsa sonucun ilk harfini kesiyor: `\\…\THE_BEST_OSEMCİLER\temp\kod_review_X.md`
+     → `od_review_X.md`. Kuyruga bozuk ad yaziliyor, `5 onay`'da "Dosya ortak alanda
+     bulunamadi" deniyordu. Goreli yol `goreliYol` ile (on ek karsilastirma) hesaplanir.
    - Branch rapordan okunur (`raporBilgisi`: `# Kod Incelemesi … — <branch>` basligi,
      `**Puan:**`, "Incelenen commit'ler" listesi). Ilk dosya rapor degil de ikincisi
      raporsa yerleri degistirilir. `raporOlustur` bicimi degisirse burasi da degismeli.
@@ -471,6 +490,13 @@ hicbir odayi dinlemez (baslangicta uyari loglanir).
 - Bu dosyayi (memory.md) guncelle.
 
 ## Yapilanlar / Durum
+- [2026-11-11] **5-2 duzeltme + docx gorselleri.** (1) Prod'da `5-2` kuyruga
+  `od_review_…md` / `PTY-…docx` yaziyordu (ilk harf eksik) → `5 onay`'da dosya
+  bulunamadi. Neden: ortak alan yolundaki `İ` + Node 20.11 `path.win32.relative`
+  hatasi (Node 20.11.0 ile birebir uretildi); `goreliYol` ile giderildi. (2) Reddiye
+  .docx'indeki gorseller modele gorsel olarak veriliyor (bkz. 5. islem madde 13).
+  Dogrulama: test-offline.js'e 22 test + sahte sunucuyla uctan uca (gorsel kabul /
+  gorsel reddi). **Gercek modelin gorsel destegi denenmedi.**
 - [2026-11-11] **5-2: incelemeye itiraz (reddiye).** Yeni `lib/kodReviewItiraz.js`;
   kodReview.js'te ortak parcalar (`tekSeferde`, `commitleriKilitliTopla`, `PUAN_OLCEGI`,
   `llmIncele` `sistemTemel`/`onEk`, `raporOlustur` ek alanlar, `dosyayaYaz` eki);
