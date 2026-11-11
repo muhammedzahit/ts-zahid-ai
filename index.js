@@ -29,6 +29,7 @@ const {
 } = require('./lib/liquibaseRun');
 const kodReview = require('./lib/kodReview');
 const kuyruk = require('./lib/kodReviewKuyruk');
+const itiraz = require('./lib/kodReviewItiraz');
 
 const config = {
   token: process.env.WEBEX_BOT_TOKEN,
@@ -134,6 +135,9 @@ const OPERATIONS = [
       '`5 APTY-123` → kuyruga ekle · `5 liste` → kuyrugu gor · `5 iptal #id` → talebi geri cek · ' +
       '`5 onay` → (yetkili) kuyrugu islet\n' +
       'Model inceleme sirasinda branch\'in kodunu ve STAGING veritabanini **yalnizca okuyarak** arastirabilir.\n' +
+      '**5-2 — Incelemeye itiraz (reddiye):** incelemeye katilmadiginiz noktalari bir dosyaya ' +
+      '(`.docx` / `.md` / `.txt`) yazip ortak alana koyun; model itirazlari tek tek degerlendirip puani gunceller.\n' +
+      '`5-2 <inceleme raporu> <reddiye dosyasi>` → kuyruga ekle (ör. `5-2 kod_review_APTY-123_….md reddiye.docx`)\n' +
       kodReview.YEREL_AI_UYARISI,
   },
   {
@@ -357,16 +361,29 @@ function mesajKimligi(trigger) {
   return trigger.id || (trigger.message && trigger.message.id) || `yerel-${Date.now()}-${Math.random()}`;
 }
 
+/** Talebin sohbette gorunen adi: `APTY-123` ya da (5-2 icin) itiraz · `APTY-123`. */
+function talepEtiketi(t) {
+  if (t.tur !== 'itiraz') return `\`${t.branch}\``;
+  return `itiraz · \`${t.branch || t.review}\``;
+}
+
 function talepSatiri(t, sira, simdi = Date.now()) {
   const kalan = kuyruk.bekleme() - (simdi - Number(t.eklenme));
-  return `${sira}. \`#${t.id}\` · \`${t.branch}\` · ${t.kim} · ${kuyruk.sureYaz(simdi - Number(t.eklenme))} once` +
+  return `${sira}. \`#${t.id}\` · ${talepEtiketi(t)} · ${t.kim} · ${kuyruk.sureYaz(simdi - Number(t.eklenme))} once` +
     ` · ${kalan > 0 ? `${kuyruk.sureYaz(kalan)} kaldi` : 'suresi doldu'}`;
 }
 
 const KOD_REVIEW_KULLANIM =
   'Ornek:\n```\n5 APTY-123\n```\n' +
   '`5 liste` → kuyrugu gor · `5 iptal #id` → talebi geri cek · `5 onay` → (yetkili) kuyrugu islet\n' +
+  '`5-2 <inceleme raporu> <reddiye dosyasi>` → incelemeye itiraz et\n' +
   kodReview.YEREL_AI_UYARISI;
+
+const ITIRAZ_KULLANIM =
+  'Ornek (dosyalar ortak alanda olmali; yalnizca dosya adi yazmak yeterli):\n' +
+  '```\n5-2 kod_review_APTY-123_2026-11-11_09-30-00-000.md reddiye.docx\n```\n' +
+  'Ilk dosya botun yazdigi inceleme raporu, ikincisi itirazlarinizi yazdiginiz dosya ' +
+  `(${itiraz.UZANTILAR.join(' / ')}). Dosya adinda bosluk varsa iki dosyayi alt alta yazin.`;
 
 async function handleOperationFive(bot, trigger, rest) {
   const alt = kuyruk.altKomutCoz(rest);
@@ -392,6 +409,8 @@ async function handleOperationFive(bot, trigger, rest) {
       await kodReviewListe(bot);
     } else if (alt.tur === 'iptal') {
       await kodReviewIptal(bot, trigger, alt.hedef);
+    } else if (alt.tur === 'itiraz') {
+      await kodReviewItirazEkle(bot, trigger, alt.girdi);
     } else {
       await kodReviewKuyrugaEkle(bot, trigger, alt.girdi);
     }
@@ -409,7 +428,9 @@ async function kodReviewKuyrugaEkle(bot, trigger, girdi) {
 
   kuyruk.sureDolanlariAyikla();
   const bekleyen = kuyruk.bekleyenler();
-  const mevcut = bekleyen.findIndex((t) => String(t.branch).toLowerCase() === istek.branch.toLowerCase());
+  const mevcut = bekleyen.findIndex(
+    (t) => t.tur !== 'itiraz' && String(t.branch).toLowerCase() === istek.branch.toLowerCase()
+  );
   if (mevcut >= 0) {
     const t = bekleyen[mevcut];
     await bot.say(`ℹ️ \`${istek.branch}\` zaten kuyrukta: sira ${mevcut + 1}, \`#${t.id}\` (${t.kim}).`);
@@ -426,13 +447,62 @@ async function kodReviewKuyrugaEkle(bot, trigger, girdi) {
   );
 }
 
+/** `5-2 <inceleme raporu> <reddiye>`: itiraz degerlendirmesini kuyruga ekler. */
+async function kodReviewItirazEkle(bot, trigger, girdi) {
+  const arg = itiraz.argumanCoz(girdi);
+  if (arg.hata) {
+    await bot.say(`⚠️ ${arg.hata === 'bos' ? '5-2 icin iki dosya yazmalisiniz.' : arg.hata}\n\n${ITIRAZ_KULLANIM}`);
+    return;
+  }
+
+  // Ortak alan bu makineden gorunuyorsa dosyalar simdi dogrulanir (hata `5 onay`'i
+  // beklemeden gorulsun); gorunmuyorsa islenirken, yapay zekali makinede dogrulanir.
+  let talep = { tur: 'itiraz', branch: '', aranan: '', review: arg.review, reddiye: arg.reddiye };
+  let notlar = '';
+  if (itiraz.ortakKlasor()) {
+    const h = await itiraz.hazirla(arg);
+    if (h.hata) {
+      await bot.say(`⚠️ ${h.hata}\n\n${ITIRAZ_KULLANIM}`);
+      return;
+    }
+    talep = { ...talep, branch: h.branch, aranan: h.aranan, review: h.review.goreli, reddiye: h.reddiye.goreli };
+    notlar =
+      (h.yerDegisti ? '\n_Dosyalar ters sirada yazilmisti; inceleme raporu ve reddiye yer degistirildi._' : '') +
+      (h.reddiye.gorsel ? `\n_Reddiye dosyasindaki ${h.reddiye.gorsel} gorsel modele verilmez; yalnizca metin okunur._` : '');
+  }
+
+  kuyruk.sureDolanlariAyikla();
+  const bekleyen = kuyruk.bekleyenler();
+  const ayni = (a, b) => String(a).toLowerCase() === String(b).toLowerCase();
+  const mevcut = bekleyen.findIndex(
+    (t) => t.tur === 'itiraz' && ayni(t.review, talep.review) && ayni(t.reddiye, talep.reddiye)
+  );
+  if (mevcut >= 0) {
+    const t = bekleyen[mevcut];
+    await bot.say(`ℹ️ Bu itiraz zaten kuyrukta: sira ${mevcut + 1}, \`#${t.id}\` (${t.kim}).`);
+    return;
+  }
+
+  const t = kuyruk.ekle({ ...talep, roomId: bot.room.id, ...kisiBilgisi(trigger) });
+  const saat = Math.round(kuyruk.bekleme() / 3600000);
+  await bot.say(
+    `${kodReview.YEREL_AI_UYARISI}\n\n` +
+      `📥 ${talep.branch ? `\`${talep.branch}\` incelemesine itiraz` : 'Itiraz'} kuyruga alindi — ` +
+      `sira **${bekleyen.length + 1}**, \`#${t.id}\`.\n` +
+      `Inceleme raporu: \`${talep.review}\` · Reddiye: \`${talep.reddiye}\`\n` +
+      `Yetkili kisi \`5 onay\` deyince islenecek; sonuc bu odaya yazilacak. Talep ${saat} saat bekler.\n` +
+      '`5 liste` ile kuyrugu gorebilir, `5 iptal #' + t.id + '` ile geri cekebilirsiniz.' +
+      notlar
+  );
+}
+
 async function kodReviewListe(bot) {
   const dolan = kuyruk.sureDolanlariAyikla();
   const bekleyen = kuyruk.bekleyenler();
   const isleniyor = kuyruk.isleniyorlar();
   const satirlar = [];
   if (isleniyor.length) {
-    satirlar.push('**Su an isleniyor:**', ...isleniyor.map((t) => `- \`#${t.id}\` · \`${t.branch}\` · ${t.kim}`), '');
+    satirlar.push('**Su an isleniyor:**', ...isleniyor.map((t) => `- \`#${t.id}\` · ${talepEtiketi(t)} · ${t.kim}`), '');
   }
   if (bekleyen.length) {
     satirlar.push(`**Kuyrukta bekleyen (${bekleyen.length}):**`, ...bekleyen.map((t, i) => talepSatiri(t, i + 1)));
@@ -440,7 +510,7 @@ async function kodReviewListe(bot) {
     satirlar.push('📭 Kod incelemesi kuyrugu bos.');
   }
   if (dolan.length) {
-    satirlar.push('', `⌛ Suresi doldugu icin kuyruktan cikarilan: ${dolan.map((t) => `\`${t.branch}\` (${t.kim})`).join(', ')}`);
+    satirlar.push('', `⌛ Suresi doldugu icin kuyruktan cikarilan: ${dolan.map((t) => `${talepEtiketi(t)} (${t.kim})`).join(', ')}`);
   }
   await bot.say(satirlar.join('\n'));
 }
@@ -458,11 +528,11 @@ async function kodReviewIptal(bot, trigger, hedef) {
   const { kim, kimEmail } = kisiBilgisi(trigger);
   const sahibi = t.kimEmail && kimEmail && t.kimEmail.toLowerCase() === kimEmail.toLowerCase();
   if (!sahibi && !kuyruk.onaylayiciMi({ email: kimEmail, ad: kim })) {
-    await bot.say(`⛔ \`${t.branch}\` talebini yalnizca acan kisi (${t.kim}) ya da onay yetkilisi iptal edebilir.`);
+    await bot.say(`⛔ ${talepEtiketi(t)} talebini yalnizca acan kisi (${t.kim}) ya da onay yetkilisi iptal edebilir.`);
     return;
   }
   kuyruk.sil(t);
-  await bot.say(`🗑️ \`${t.branch}\` (\`#${t.id}\`) kuyruktan cikarildi.`);
+  await bot.say(`🗑️ ${talepEtiketi(t)} (\`#${t.id}\`) kuyruktan cikarildi.`);
 }
 
 /** `5 onay`: yalnizca yerel yapay zekaya erisen (LLM_BASE_URL tanimli) makine isler. */
@@ -514,7 +584,7 @@ async function handleKodReviewOnay(bot, trigger, mesajId) {
   try {
     const dolan = kuyruk.sureDolanlariAyikla();
     if (dolan.length) {
-      await bot.say(`⌛ Suresi doldugu icin kuyruktan cikarilan: ${dolan.map((t) => `\`${t.branch}\` (${t.kim})`).join(', ')}`);
+      await bot.say(`⌛ Suresi doldugu icin kuyruktan cikarilan: ${dolan.map((t) => `${talepEtiketi(t)} (${t.kim})`).join(', ')}`);
     }
 
     // Onay anindaki liste islenir; sonradan gelenler bir sonraki onayi bekler.
@@ -542,7 +612,8 @@ async function handleKodReviewOnay(bot, trigger, mesajId) {
       const t = liste[i];
       if (!kuyruk.isleniyorIsaretle(t)) continue; // bu arada iptal edilmis
       const hedefBot = framework.getBotByRoomId(t.roomId) || bot;
-      const durum = await kodReviewTalebiIsle(hedefBot, t, { sira: i + 1, toplam: liste.length });
+      const isle = t.tur === 'itiraz' ? kodReviewItirazIsle : kodReviewTalebiIsle;
+      const durum = await isle(hedefBot, t, { sira: i + 1, toplam: liste.length });
       if (durum === 'baglanti') {
         kuyruk.geriAl(t);
         kalan = liste.length - i;
@@ -565,13 +636,74 @@ async function handleKodReviewOnay(bot, trigger, mesajId) {
   }
 }
 
+function isteyenEtiketi(talep) {
+  return talep.kimEmail ? `<@personEmail:${talep.kimEmail}|${talep.kim}>` : talep.kim;
+}
+
+function kodReviewLog(ad) {
+  return (tur, veri) => {
+    if (tur === 'arac') {
+      console.log(`Kod incelemesi [${ad}] adim ${veri.adim}: ${veri.ad}${veri.hata ? ` (hata: ${veri.hata})` : ''}`);
+    } else {
+      console.log(`Kod incelemesi [${ad}] ${tur}:`, JSON.stringify(veri));
+    }
+  };
+}
+
+/** "N commit bulundu" mesajinin commit listesi + sinir notlari. */
+function commitOzeti({ commitler, kirpildi, fazla }) {
+  const liste = commitler
+    .slice(-10)
+    .map((c) => `- \`${c.kisa}\` ${c.tarih} · ${c.yazar} · ${c.mesaj}${c.yeni ? ' _(yeni)_' : ''}`)
+    .join('\n');
+  return (
+    `📝 **${commitler.length} commit** bulundu` +
+    (commitler.length > 10 ? ' (son 10 tanesi):' : ':') +
+    `\n${liste}\n\n` +
+    (fazla ? '_Commit siniri asildi; yalnizca en yeni commit\'ler inceleniyor._\n' : '') +
+    (kirpildi ? '_Diff cok buyuk; boyut sinirinda kesildi, kalani model araclarla okuyabilir._\n' : '')
+  );
+}
+
+/** Inceleme hatasini odaya yazar. 'baglanti' → talep kuyrukta kalmali. */
+async function kodReviewHatasi(bot, etiket, err) {
+  if (kodReview.baglantiHatasiMi(err)) {
+    await bot.say(
+      `⏸️ ${etiket} islenirken yerel yapay zeka baglantisi koptu (${kodReview.hataMesaji(err)}). ` +
+        'Talep kuyrukta birakildi.'
+    );
+    return 'baglanti';
+  }
+  await bot.say(`❌ ${etiket} islenemedi:\n${kodReview.hataMesaji(err)}`);
+  return 'hata';
+}
+
+/** SHARED_FOLDER yok/yazilamadi: sonuc sohbete parca parca basilir. */
+async function kodReviewSohbeteBas(bot, baslik, govde) {
+  const parcalar = kodReview.parcala(`${baslik}\n\n${govde}`);
+  const gonderilecek = parcalar.slice(0, kodReview.WEBEX_MAKS_PARCA);
+  for (const parca of gonderilecek) {
+    await bot.say(parca);
+  }
+  await bot.say(
+    (parcalar.length > gonderilecek.length
+      ? `✂️ Inceleme cok uzun; ilk ${gonderilecek.length}/${parcalar.length} parca gosterildi.\n`
+      : '') +
+      '⚠️ Ayrintili rapor dosyaya yazilamadi (`SHARED_FOLDER` tanimli/erisilebilir degil).'
+  );
+}
+
+function bulguSatiri(bulgu) {
+  return `🔴 ${bulgu.kritik} kritik · 🟠 ${bulgu.onemli} onemli · 🟡 ${bulgu.kucuk} kucuk`;
+}
+
 /**
  * Kuyruktaki tek bir talebi inceler ve sonucu talebin odasina yazar.
  * @returns {Promise<'ok'|'hata'|'baglanti'>} 'baglanti' → model baglantisi koptu, talep kuyrukta kalmali
  */
 async function kodReviewTalebiIsle(bot, talep, { sira, toplam }) {
   const { branch, aranan } = talep;
-  const isteyen = talep.kimEmail ? `<@personEmail:${talep.kimEmail}|${talep.kim}>` : talep.kim;
+  const isteyen = isteyenEtiketi(talep);
   await bot.say(
     `${kodReview.YEREL_AI_UYARISI}\n\n` +
       `🔎 [kuyruk ${sira}/${toplam}] \`${branch}\` inceleniyor (isteyen: ${isteyen}, \`#${talep.id}\`). ` +
@@ -583,39 +715,17 @@ async function kodReviewTalebiIsle(bot, talep, { sira, toplam }) {
     sonuc = await kodReview.kodReviewYap({
       branch,
       aranan,
-      olay: (tur, veri) => {
-        if (tur === 'arac') {
-          console.log(`Kod incelemesi [${branch}] adim ${veri.adim}: ${veri.ad}${veri.hata ? ` (hata: ${veri.hata})` : ''}`);
-        } else {
-          console.log(`Kod incelemesi [${branch}] ${tur}:`, JSON.stringify(veri));
-        }
-      },
-      commitlerBulundu: async ({ commitler, kirpildi, fazla }) => {
-        const liste = commitler
-          .slice(-10)
-          .map((c) => `- \`${c.kisa}\` ${c.tarih} · ${c.yazar} · ${c.mesaj}`)
-          .join('\n');
+      olay: kodReviewLog(branch),
+      commitlerBulundu: async (toplanan) => {
         await bot.say(
-          `📝 **${commitler.length} commit** bulundu` +
-            (commitler.length > 10 ? ' (son 10 tanesi):' : ':') +
-            `\n${liste}\n\n` +
-            (fazla ? '_Commit siniri asildi; yalnizca en yeni commit\'ler inceleniyor._\n' : '') +
-            (kirpildi ? '_Diff cok buyuk; boyut sinirinda kesildi, kalani model araclarla okuyabilir._\n' : '') +
+          commitOzeti(toplanan) +
             '🤖 Yerel model inceliyor; gerekirse kodu ve STAGING veritabanini **yalnizca okuyarak** arastiracak. ' +
             'Bu birkac dakika surebilir.'
         );
       },
     });
   } catch (err) {
-    if (kodReview.baglantiHatasiMi(err)) {
-      await bot.say(
-        `⏸️ \`${branch}\` incelenirken yerel yapay zeka baglantisi koptu (${kodReview.hataMesaji(err)}). ` +
-          'Talep kuyrukta birakildi.'
-      );
-      return 'baglanti';
-    }
-    await bot.say(`❌ \`${branch}\` kod incelemesi yapilamadi:\n${kodReview.hataMesaji(err)}`);
-    return 'hata';
+    return kodReviewHatasi(bot, `\`${branch}\` kod incelemesi`, err);
   }
 
   if (!sonuc.ok) {
@@ -625,7 +735,6 @@ async function kodReviewTalebiIsle(bot, talep, { sira, toplam }) {
 
   // Ayrintili rapor SHARED_FOLDER'a yazilir; Webex'e puan + ozet + dosya yolu gider.
   const dosya = kodReview.dosyayaYaz(branch, kodReview.raporOlustur({ branch, ...sonuc }));
-  const bulgu = kodReview.bulguSay(sonuc.govde);
   const baslik =
     `🧐 **Kod incelemesi — \`${branch}\`** · Puan: ${kodReview.puanEtiketi(sonuc.puan)} · ${isteyen}\n` +
     `${sonuc.commitler.length} commit · model \`${sonuc.model}\` (yerel) · ${sonuc.sureSn} sn\n` +
@@ -636,24 +745,85 @@ async function kodReviewTalebiIsle(bot, talep, { sira, toplam }) {
     await bot.say(
       `${baslik}\n\n` +
         `**Ozet**\n${kodReview.ozetCikar(sonuc.govde)}\n\n` +
-        `**Bulgular:** 🔴 ${bulgu.kritik} kritik · 🟠 ${bulgu.onemli} onemli · 🟡 ${bulgu.kucuk} kucuk\n\n` +
-        `📄 Ayrintili inceleme:\n\`\`\`\n${dosya}\n\`\`\``
+        `**Bulgular:** ${bulguSatiri(kodReview.bulguSay(sonuc.govde))}\n\n` +
+        `📄 Ayrintili inceleme:\n\`\`\`\n${dosya}\n\`\`\`\n` +
+        'Incelemeye itiraziniz varsa bir dosyaya yazip ortak alana koyun: `5-2 <bu rapor> <reddiye dosyasi>`'
     );
     return 'ok';
   }
 
-  // SHARED_FOLDER yok/yazilamadi: inceleme sohbete parca parca basilir.
-  const parcalar = kodReview.parcala(`${baslik}\n\n${sonuc.govde}`);
-  const gonderilecek = parcalar.slice(0, kodReview.WEBEX_MAKS_PARCA);
-  for (const parca of gonderilecek) {
-    await bot.say(parca);
-  }
+  await kodReviewSohbeteBas(bot, baslik, sonuc.govde);
+  return 'ok';
+}
+
+/**
+ * Kuyruktaki bir itiraz (5-2) talebini isler: onceki inceleme + reddiye + guncel diff
+ * modele verilir, guncel degerlendirme talebin odasina yazilir.
+ * @returns {Promise<'ok'|'hata'|'baglanti'>}
+ */
+async function kodReviewItirazIsle(bot, talep, { sira, toplam }) {
+  const isteyen = isteyenEtiketi(talep);
+  const etiket = talepEtiketi(talep);
   await bot.say(
-    (parcalar.length > gonderilecek.length
-      ? `✂️ Inceleme cok uzun; ilk ${gonderilecek.length}/${parcalar.length} parca gosterildi.\n`
-      : '') +
-      '⚠️ Ayrintili rapor dosyaya yazilamadi (`SHARED_FOLDER` tanimli/erisilebilir degil).'
+    `${kodReview.YEREL_AI_UYARISI}\n\n` +
+      `⚖️ [kuyruk ${sira}/${toplam}] ${etiket} degerlendiriliyor (isteyen: ${isteyen}, \`#${talep.id}\`).\n` +
+      `Inceleme raporu: \`${talep.review}\` · Reddiye: \`${talep.reddiye}\``
   );
+
+  let sonuc;
+  try {
+    sonuc = await itiraz.itirazYap({
+      review: talep.review,
+      reddiye: talep.reddiye,
+      olay: kodReviewLog(`itiraz ${talep.branch || talep.review}`),
+      commitlerBulundu: async (toplanan) => {
+        await bot.say(
+          commitOzeti(toplanan) +
+            (toplanan.yeniCommitler.length
+              ? `_Onceki incelemeden sonra ${toplanan.yeniCommitler.length} yeni commit eklenmis._\n`
+              : '') +
+            '🤖 Yerel model itirazlari tek tek degerlendiriyor; gerekirse kodu ve STAGING veritabanini ' +
+            '**yalnizca okuyarak** dogrulayacak. Bu birkac dakika surebilir.'
+        );
+      },
+    });
+  } catch (err) {
+    return kodReviewHatasi(bot, `${etiket} degerlendirmesi`, err);
+  }
+
+  if (!sonuc.ok) {
+    await bot.say(`⚠️ ${sonuc.mesaj}`);
+    return 'hata';
+  }
+
+  const { branch } = sonuc;
+  const dosya = kodReview.dosyayaYaz(branch, itiraz.raporOlustur(sonuc), 'itiraz');
+  const karar = itiraz.kararSay(sonuc.govde);
+  const puan =
+    (sonuc.oncekiPuan === null ? '' : `${sonuc.oncekiPuan}/100 → `) + kodReview.puanEtiketi(sonuc.puan);
+  const baslik =
+    `⚖️ **Itiraz degerlendirmesi — \`${branch}\`** · Puan: ${puan} · ${isteyen}\n` +
+    `${sonuc.commitler.length} commit` +
+    (sonuc.yeniCommitler.length ? ` (${sonuc.yeniCommitler.length} yeni)` : '') +
+    ` · model \`${sonuc.model}\` (yerel) · ${sonuc.sureSn} sn\n` +
+    kodReview.aracOzeti(sonuc) +
+    (sonuc.gorsel ? `\n_Reddiye dosyasindaki ${sonuc.gorsel} gorsel modele verilmedi (yalnizca metin okundu)._` : '') +
+    (sonuc.metinKirpildi ? '\n_Inceleme / itiraz metni cok uzundu; bir kismi kesilerek verildi._' : '') +
+    (sonuc.yarim ? '\n_Model token sinirina takildi; degerlendirme yarim kalmis olabilir._' : '');
+
+  if (dosya) {
+    await bot.say(
+      `${baslik}\n\n` +
+        `**Ozet**\n${kodReview.ozetCikar(sonuc.govde)}\n\n` +
+        `**Itirazlar:** ✅ ${karar.kabul} kabul · ⚖️ ${karar.kismen} kismen · ❌ ${karar.ret} ret\n` +
+        `**Guncel bulgular:** ${bulguSatiri(kodReview.bulguSay(itiraz.guncelBulgular(sonuc.govde)))}\n\n` +
+        `📄 Ayrintili degerlendirme:\n\`\`\`\n${dosya}\n\`\`\`\n` +
+        'Bu degerlendirmeye de itiraz edebilirsiniz: `5-2 <bu rapor> <yeni reddiye dosyasi>`'
+    );
+    return 'ok';
+  }
+
+  await kodReviewSohbeteBas(bot, baslik, sonuc.govde);
   return 'ok';
 }
 
@@ -888,7 +1058,18 @@ framework.hears(/.*/, async (bot, trigger) => {
     ? htmlToText(message.html, botName)
     : (trigger.text || message.text || '');
   const text = stripBotMention(rawText, botName);
-  const { command, rest } = parseInput(text);
+  const girdi = parseInput(text);
+  let { command, rest } = girdi;
+
+  // `5-2 <rapor> <reddiye>` 5. islemin itiraz alt komutudur; yetki ve dinleme
+  // kontrolleri 5 uzerinden yapilir. 5'in parametreleri yan yana da alt alta da
+  // yazilabildigi icin komuttan sonraki metnin tamami verilir.
+  if (command === '5-2') {
+    command = '5';
+    rest = `itiraz ${girdi.tumu}`;
+  } else if (command === '5') {
+    rest = girdi.tumu;
+  }
 
   const cmdLower = command.toLowerCase();
 
@@ -901,7 +1082,7 @@ framework.hears(/.*/, async (bot, trigger) => {
   if (!OPERATIONS.some((op) => op.cmd === command)) {
     // Bot birden fazla makinede calisiyorsa bu kopyanin tanimadigi sayisal komut,
     // diger makinedeki (ör. daha yeni surumdeki) kopyaya ait olabilir: sessiz kal.
-    if (!LISTENED.all && /^\d+$/.test(command)) {
+    if (!LISTENED.all && /^\d+(-\d+)?$/.test(command)) {
       console.log(`Bilinmeyen islem ${command} yoksayildi (DINLENEN_ISLEMLER dolu; baska kopyaya ait olabilir).`);
       return;
     }
